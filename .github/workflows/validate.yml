@@ -22,9 +22,11 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # hacs/action derives the download ref itself when "repository" is
-          # omitted, using the raw GITHUB_REF (e.g. "refs/heads/main"), which
-          # is not a valid raw.githubusercontent.com path segment and makes
-          # it fail to fetch hacs.json/manifest.json. Pass a plain
-          # "owner/repo@branch" ref explicitly to avoid that.
-          repository: ${{ github.repository }}@${{ github.head_ref || github.ref_name }}
+        env:
+          # On push events, hacs/action's preflight() takes the ref straight
+          # from the push event payload ("refs/heads/main"), which is not a
+          # valid raw.githubusercontent.com path segment and breaks the
+          # hacs.json/manifest.json fetch. REPOSITORY_REF (read via plain
+          # os.getenv, not an action input) overrides that with a real
+          # branch name. See hacs/integration action/action.py::preflight().
+          REPOSITORY_REF: ${{ github.head_ref || github.ref_name }}
