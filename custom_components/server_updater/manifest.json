@@ -1,0 +1,12 @@
+{
+  "domain": "server_updater",
+  "name": "Server Updater",
+  "codeowners": ["@internerd"],
+  "config_flow": true,
+  "documentation": "https://github.com/internerd/ha-server-updater",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/internerd/ha-server-updater/issues",
+  "requirements": ["asyncssh==2.14.2"],
+  "version": "0.1.0"
+}

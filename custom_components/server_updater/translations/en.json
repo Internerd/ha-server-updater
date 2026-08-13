@@ -1,0 +1,82 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add server",
+        "description": "Connection details for the Linux server (Debian, Ubuntu or Proxmox VE).",
+        "data": {
+          "name": "Name",
+          "host": "Host / IP address",
+          "port": "SSH port",
+          "username": "Username",
+          "auth_method": "Authentication method"
+        }
+      },
+      "password": {
+        "title": "Password",
+        "data": {
+          "password": "SSH password"
+        }
+      },
+      "key": {
+        "title": "Private key",
+        "description": "Paste the contents of the private SSH key (PEM format).",
+        "data": {
+          "private_key": "Private key",
+          "private_key_passphrase": "Passphrase (optional)"
+        }
+      },
+      "sudo": {
+        "title": "Sudo settings",
+        "description": "Update and reboot commands usually require root access.",
+        "data": {
+          "use_sudo": "Run commands with sudo",
+          "sudo_password": "Sudo password (leave empty for NOPASSWD)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect. Please check credentials and sudo configuration."
+    },
+    "abort": {
+      "already_configured": "This server is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Server Updater options",
+        "data": {
+          "scan_interval_minutes": "Polling interval (minutes)",
+          "refresh_apt_cache": "Refresh package list before each check (apt-get update)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "auth_method": {
+      "options": {
+        "password": "Password",
+        "key": "Private key"
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "updates_available": {
+        "name": "Updates available"
+      },
+      "reboot_required": {
+        "name": "Reboot required"
+      }
+    },
+    "button": {
+      "update": {
+        "name": "Update"
+      },
+      "update_and_reboot": {
+        "name": "Update and reboot"
+      }
+    }
+  }
+}

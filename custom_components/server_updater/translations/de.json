@@ -1,0 +1,82 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Server hinzufügen",
+        "description": "Verbindungsdaten für den Linux-Server (Debian, Ubuntu oder Proxmox VE).",
+        "data": {
+          "name": "Name",
+          "host": "Host / IP-Adresse",
+          "port": "SSH-Port",
+          "username": "Benutzername",
+          "auth_method": "Authentifizierungsmethode"
+        }
+      },
+      "password": {
+        "title": "Passwort",
+        "data": {
+          "password": "SSH-Passwort"
+        }
+      },
+      "key": {
+        "title": "Privater Schlüssel",
+        "description": "Inhalt des privaten SSH-Schlüssels (PEM-Format) einfügen.",
+        "data": {
+          "private_key": "Privater Schlüssel",
+          "private_key_passphrase": "Passphrase (optional)"
+        }
+      },
+      "sudo": {
+        "title": "Sudo-Einstellungen",
+        "description": "Für Update- und Reboot-Befehle wird in der Regel Root-Zugriff benötigt.",
+        "data": {
+          "use_sudo": "Befehle mit sudo ausführen",
+          "sudo_password": "Sudo-Passwort (leer lassen bei NOPASSWD)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung fehlgeschlagen. Zugangsdaten und Sudo-Konfiguration prüfen."
+    },
+    "abort": {
+      "already_configured": "Dieser Server ist bereits konfiguriert."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Server Updater Optionen",
+        "data": {
+          "scan_interval_minutes": "Abfrageintervall (Minuten)",
+          "refresh_apt_cache": "Paketliste vor jeder Prüfung aktualisieren (apt-get update)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "auth_method": {
+      "options": {
+        "password": "Passwort",
+        "key": "Privater Schlüssel"
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "updates_available": {
+        "name": "Updates verfügbar"
+      },
+      "reboot_required": {
+        "name": "Neustart erforderlich"
+      }
+    },
+    "button": {
+      "update": {
+        "name": "Aktualisieren"
+      },
+      "update_and_reboot": {
+        "name": "Aktualisieren und neu starten"
+      }
+    }
+  }
+}
