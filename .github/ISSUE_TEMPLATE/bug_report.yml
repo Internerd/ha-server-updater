@@ -1,0 +1,49 @@
+name: Fehlerbericht
+description: Einen Fehler in der Server-Updater-Integration melden
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke, dass du dir die Zeit nimmst, einen Fehler zu melden!
+  - type: input
+    id: version
+    attributes:
+      label: Integrationsversion
+      description: Siehe Einstellungen → Geräte & Dienste → Server Updater
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant Version
+      placeholder: "2024.3.3"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Betriebssystem des Zielservers
+      options:
+        - Debian
+        - Ubuntu
+        - Proxmox VE
+        - Anderes (apt-basiert)
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Was ist passiert?
+      description: Erwartetes vs. tatsächliches Verhalten
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevante Logs
+      description: |
+        Einstellungen → System → Protokolle, gefiltert nach `server_updater`.
+        Sensible Daten (Hostnamen, Passwörter) bitte vorher entfernen.
+      render: text
