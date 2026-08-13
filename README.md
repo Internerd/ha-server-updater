@@ -24,6 +24,7 @@ Es lassen sich beliebig viele Server konfigurieren, jeder als eigener
 - [Troubleshooting](#troubleshooting)
 - [Hinweis zu Add-on vs. Integration](#hinweis-zu-add-on-vs-integration)
 - [Mitwirken](#mitwirken)
+- [Rechtliches & KI-Hinweis](#rechtliches--ki-hinweis)
 
 ## Bereitgestellte Entitäten (pro Server)
 
@@ -171,5 +172,15 @@ via MQTT/REST) – bei Bedarf kann das aber ergänzt werden.
 
 Beiträge sind willkommen – siehe [CONTRIBUTING.md](CONTRIBUTING.md) für
 Entwicklungs-Setup, Tests und den Release-Prozess. Änderungen werden in
-[CHANGELOG.md](CHANGELOG.md) festgehalten. Dieses Projekt steht unter der
-[MIT-Lizenz](LICENSE).
+[CHANGELOG.md](CHANGELOG.md) festgehalten. Sicherheitsrelevante Meldungen
+bitte gemäß [SECURITY.md](SECURITY.md) einreichen.
+
+## Rechtliches & KI-Hinweis
+
+Dieses Projekt steht unter der [MIT-Lizenz](LICENSE). Es wurde mit
+Unterstützung eines KI-Assistenten (Claude Code) entwickelt, ist ein
+unabhängiges Community-Projekt ohne Zugehörigkeit zu Home Assistant,
+Debian, Ubuntu oder Proxmox, und übernimmt keine Gewährleistung für
+Aktionen auf deinen Servern. Details, Lizenzen der Abhängigkeiten
+(u. a. [asyncssh](https://github.com/ronf/asyncssh)) und der vollständige
+Haftungsausschluss stehen in [NOTICE.md](NOTICE.md).
