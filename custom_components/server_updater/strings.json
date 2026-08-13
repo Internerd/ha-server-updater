@@ -3,40 +3,23 @@
     "step": {
       "user": {
         "title": "Server hinzufügen",
-        "description": "Verbindungsdaten für den Linux-Server (Debian, Ubuntu oder Proxmox VE).",
+        "description": "Verbindungsdaten für den Linux-Server (Debian, Ubuntu oder Proxmox VE). Entweder Passwort oder privater Schlüssel angeben (oder beides, dann wird der Schlüssel bevorzugt).\n\n**Privaten SSH-Schlüssel einfügen**: Auf dem Rechner, der den Schlüssel besitzt, den Inhalt der privaten Schlüsseldatei ausgeben (z. B. `cat ~/.ssh/id_ed25519` oder `cat ~/.ssh/id_rsa`) und **den kompletten Text** in das Feld „Privater Schlüssel“ einfügen — inklusive der ersten Zeile `-----BEGIN ... PRIVATE KEY-----` und der letzten Zeile `-----END ... PRIVATE KEY-----`. Nicht die Datei mit der Endung `.pub` verwenden, das ist der öffentliche Schlüssel. Ist der Schlüssel mit einer Passphrase geschützt, diese im Feld „Passphrase“ eintragen, sonst leer lassen. Der öffentliche Gegenpart muss bereits in `~/.ssh/authorized_keys` des Zielservers für den angegebenen Benutzer hinterlegt sein.",
         "data": {
           "name": "Name",
           "host": "Host / IP-Adresse",
           "port": "SSH-Port",
           "username": "Benutzername",
-          "auth_method": "Authentifizierungsmethode"
-        }
-      },
-      "password": {
-        "title": "Passwort",
-        "data": {
-          "password": "SSH-Passwort"
-        }
-      },
-      "key": {
-        "title": "Privater Schlüssel",
-        "description": "Inhalt des privaten SSH-Schlüssels (PEM-Format) einfügen.",
-        "data": {
-          "private_key": "Privater Schlüssel",
-          "private_key_passphrase": "Passphrase (optional)"
-        }
-      },
-      "sudo": {
-        "title": "Sudo-Einstellungen",
-        "description": "Für Update- und Reboot-Befehle wird in der Regel Root-Zugriff benötigt.",
-        "data": {
+          "password": "SSH-Passwort (optional, falls kein Schlüssel verwendet wird)",
+          "private_key": "Privater SSH-Schlüssel (optional, falls kein Passwort verwendet wird)",
+          "private_key_passphrase": "Passphrase des Schlüssels (nur falls vorhanden)",
           "use_sudo": "Befehle mit sudo ausführen",
-          "sudo_password": "Sudo-Passwort (leer lassen bei NOPASSWD)"
+          "sudo_password": "Sudo-Passwort (leer lassen bei NOPASSWD oder root-Login)"
         }
       }
     },
     "error": {
-      "cannot_connect": "Verbindung fehlgeschlagen. Zugangsdaten und Sudo-Konfiguration prüfen."
+      "cannot_connect": "Verbindung fehlgeschlagen: {error}",
+      "auth_required": "Bitte entweder ein Passwort oder einen privaten Schlüssel angeben."
     },
     "abort": {
       "already_configured": "Dieser Server ist bereits konfiguriert."
@@ -50,14 +33,6 @@
           "scan_interval_minutes": "Abfrageintervall (Minuten)",
           "refresh_apt_cache": "Paketliste vor jeder Prüfung aktualisieren (apt-get update)"
         }
-      }
-    }
-  },
-  "selector": {
-    "auth_method": {
-      "options": {
-        "password": "Passwort",
-        "key": "Privater Schlüssel"
       }
     }
   },

@@ -13,18 +13,12 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
-    SelectSelector,
-    SelectSelectorConfig,
-    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
 )
 
 from .const import (
-    AUTH_METHOD_KEY,
-    AUTH_METHOD_PASSWORD,
-    CONF_AUTH_METHOD,
     CONF_PRIVATE_KEY,
     CONF_PRIVATE_KEY_PASSPHRASE,
     CONF_REFRESH_APT_CACHE,
@@ -43,7 +37,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ServerUpdaterConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for one server."""
+    """Handle a config flow for one server.
+
+    Everything lives on a single form so a failed connection test can be
+    corrected and resubmitted in place, instead of forcing the user through
+    a multi-step wizard with no way back.
+    """
 
     VERSION = 1
 
@@ -54,99 +53,70 @@ class ServerUpdaterConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
         errors: dict[str, str] = {}
+        description_placeholders: dict[str, str] = {}
+
         if user_input is not None:
             self._data.update(user_input)
-            if user_input[CONF_AUTH_METHOD] == AUTH_METHOD_PASSWORD:
-                return await self.async_step_password()
-            return await self.async_step_key()
-
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_NAME): TextSelector(),
-                vol.Required(CONF_HOST): TextSelector(),
-                vol.Required(CONF_PORT, default=DEFAULT_PORT): NumberSelector(
-                    NumberSelectorConfig(min=1, max=65535, mode=NumberSelectorMode.BOX)
-                ),
-                vol.Required(CONF_USERNAME): TextSelector(),
-                vol.Required(
-                    CONF_AUTH_METHOD, default=AUTH_METHOD_PASSWORD
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=[AUTH_METHOD_PASSWORD, AUTH_METHOD_KEY],
-                        mode=SelectSelectorMode.DROPDOWN,
-                        translation_key=CONF_AUTH_METHOD,
-                    )
-                ),
-            }
-        )
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
-
-    async def async_step_password(
-        self, user_input: dict[str, Any] | None = None
-    ) -> Any:
-        if user_input is not None:
-            self._data.update(user_input)
-            return await self.async_step_sudo()
-
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_PASSWORD): TextSelector(
-                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
-                ),
-            }
-        )
-        return self.async_show_form(step_id="password", data_schema=schema)
-
-    async def async_step_key(
-        self, user_input: dict[str, Any] | None = None
-    ) -> Any:
-        if user_input is not None:
-            self._data.update(user_input)
-            return await self.async_step_sudo()
-
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_PRIVATE_KEY): TextSelector(
-                    TextSelectorConfig(type=TextSelectorType.TEXT, multiline=True)
-                ),
-                vol.Optional(CONF_PRIVATE_KEY_PASSPHRASE): TextSelector(
-                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
-                ),
-            }
-        )
-        return self.async_show_form(step_id="key", data_schema=schema)
-
-    async def async_step_sudo(
-        self, user_input: dict[str, Any] | None = None
-    ) -> Any:
-        if user_input is not None:
-            self._data.update(user_input)
-            errors = await self._async_validate()
+            self._data[CONF_PORT] = int(self._data[CONF_PORT])
+            errors, description_placeholders = await self._async_validate()
             if not errors:
-                return self.async_create_entry(
-                    title=self._data[CONF_NAME], data=self._data
-                )
-            return self.async_show_form(
-                step_id="sudo", data_schema=self._sudo_schema(), errors=errors
-            )
+                return self.async_create_entry(title=self._data[CONF_NAME], data=self._data)
 
-        return self.async_show_form(step_id="sudo", data_schema=self._sudo_schema())
+        return self.async_show_form(
+            step_id="user",
+            data_schema=self._schema(),
+            errors=errors,
+            description_placeholders=description_placeholders,
+        )
 
-    def _sudo_schema(self) -> vol.Schema:
+    def _schema(self) -> vol.Schema:
+        data = self._data
         return vol.Schema(
             {
+                vol.Required(CONF_NAME, default=data.get(CONF_NAME, "")): TextSelector(),
+                vol.Required(CONF_HOST, default=data.get(CONF_HOST, "")): TextSelector(),
                 vol.Required(
-                    CONF_USE_SUDO,
-                    default=self._data.get(CONF_USE_SUDO, DEFAULT_USE_SUDO),
-                ): BooleanSelector(),
-                vol.Optional(CONF_SUDO_PASSWORD): TextSelector(
-                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                    CONF_PORT, default=data.get(CONF_PORT, DEFAULT_PORT)
+                ): vol.All(
+                    NumberSelector(
+                        NumberSelectorConfig(min=1, max=65535, mode=NumberSelectorMode.BOX)
+                    ),
+                    vol.Coerce(int),
                 ),
+                vol.Required(
+                    CONF_USERNAME, default=data.get(CONF_USERNAME, "")
+                ): TextSelector(),
+                vol.Optional(
+                    CONF_PASSWORD, default=data.get(CONF_PASSWORD, "")
+                ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+                vol.Optional(
+                    CONF_PRIVATE_KEY, default=data.get(CONF_PRIVATE_KEY, "")
+                ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT, multiline=True)),
+                vol.Optional(
+                    CONF_PRIVATE_KEY_PASSPHRASE,
+                    default=data.get(CONF_PRIVATE_KEY_PASSPHRASE, ""),
+                ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+                vol.Required(
+                    CONF_USE_SUDO, default=data.get(CONF_USE_SUDO, DEFAULT_USE_SUDO)
+                ): BooleanSelector(),
+                vol.Optional(
+                    CONF_SUDO_PASSWORD, default=data.get(CONF_SUDO_PASSWORD, "")
+                ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
             }
         )
 
-    async def _async_validate(self) -> dict[str, str]:
+    async def _async_validate(self) -> tuple[dict[str, str], dict[str, str]]:
         errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
+
+        password = self._data.get(CONF_PASSWORD) or None
+        private_key = self._data.get(CONF_PRIVATE_KEY) or None
+        passphrase = self._data.get(CONF_PRIVATE_KEY_PASSPHRASE) or None
+
+        if not password and not private_key:
+            errors["base"] = "auth_required"
+            return errors, placeholders
+
         unique_id = (
             f"{self._data[CONF_HOST]}:{self._data[CONF_PORT]}:{self._data[CONF_USERNAME]}"
         )
@@ -157,11 +127,11 @@ class ServerUpdaterConfigFlow(ConfigFlow, domain=DOMAIN):
             host=self._data[CONF_HOST],
             port=self._data[CONF_PORT],
             username=self._data[CONF_USERNAME],
-            password=self._data.get(CONF_PASSWORD),
-            private_key=self._data.get(CONF_PRIVATE_KEY),
-            private_key_passphrase=self._data.get(CONF_PRIVATE_KEY_PASSPHRASE),
+            password=password,
+            private_key=private_key,
+            private_key_passphrase=passphrase,
             use_sudo=self._data.get(CONF_USE_SUDO, DEFAULT_USE_SUDO),
-            sudo_password=self._data.get(CONF_SUDO_PASSWORD),
+            sudo_password=self._data.get(CONF_SUDO_PASSWORD) or None,
         )
         try:
             async with conn:
@@ -169,8 +139,9 @@ class ServerUpdaterConfigFlow(ConfigFlow, domain=DOMAIN):
         except ServerUpdaterError as err:
             _LOGGER.warning("Verbindungstest fehlgeschlagen: %s", err)
             errors["base"] = "cannot_connect"
+            placeholders["error"] = str(err)
 
-        return errors
+        return errors, placeholders
 
     @staticmethod
     @callback
@@ -193,12 +164,15 @@ class ServerUpdaterOptionsFlow(OptionsFlow):
                 vol.Required(
                     CONF_SCAN_INTERVAL_MINUTES,
                     default=current.get(CONF_SCAN_INTERVAL_MINUTES, 360),
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=MIN_SCAN_INTERVAL_MINUTES,
-                        max=1440,
-                        mode=NumberSelectorMode.BOX,
-                    )
+                ): vol.All(
+                    NumberSelector(
+                        NumberSelectorConfig(
+                            min=MIN_SCAN_INTERVAL_MINUTES,
+                            max=1440,
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Coerce(int),
                 ),
                 vol.Required(
                     CONF_REFRESH_APT_CACHE,

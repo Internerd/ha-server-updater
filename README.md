@@ -66,13 +66,36 @@ Bei manueller Installation übernimmt HACS keine Update-Benachrichtigungen.
 ## Einrichtung
 
 Einstellungen → Geräte & Dienste → Integration hinzufügen → "Server Updater".
-Der Assistent fragt ab:
+Alle Angaben stehen auf einer einzigen Seite, damit sich bei einem
+fehlgeschlagenen Verbindungstest einzelne Felder korrigieren und erneut
+absenden lassen, ohne von vorne anfangen zu müssen:
 
-1. **Name, Host/IP, SSH-Port, Benutzername**
-2. **Authentifizierung**: Passwort oder privater SSH-Schlüssel (Inhalt der
-   Datei, z. B. `~/.ssh/id_ed25519`, optional mit Passphrase)
-3. **Sudo**: Ob Befehle mit `sudo` ausgeführt werden sollen (für Updates und
-   Reboot i. d. R. notwendig), und optional ein Sudo-Passwort
+- **Name, Host/IP, SSH-Port, Benutzername**
+- **Passwort** und/oder **privater SSH-Schlüssel** (mindestens eines von
+  beiden ist erforderlich; ist ein Schlüssel angegeben, wird dieser
+  bevorzugt)
+- **Sudo**: Ob Befehle mit `sudo` ausgeführt werden sollen (für Updates und
+  Reboot i. d. R. notwendig, außer beim Login als `root`), und optional ein
+  Sudo-Passwort
+
+**Privaten SSH-Schlüssel einfügen**: Auf dem Rechner, der den Schlüssel
+besitzt, den Inhalt der privaten Schlüsseldatei ausgeben, z. B.:
+
+```bash
+cat ~/.ssh/id_ed25519
+```
+
+und den **kompletten Text** in das Feld "Privater Schlüssel" einfügen —
+inklusive der ersten Zeile `-----BEGIN ... PRIVATE KEY-----` und der letzten
+Zeile `-----END ... PRIVATE KEY-----`. Nicht die `.pub`-Datei verwenden, das
+ist der öffentliche Schlüssel. Ist der Schlüssel mit einer Passphrase
+geschützt, diese im Feld "Passphrase" eintragen, sonst leer lassen. Der
+öffentliche Gegenpart muss bereits in `~/.ssh/authorized_keys` des
+Zielservers für den angegebenen Benutzer hinterlegt sein.
+
+Schlägt der Verbindungstest fehl, zeigt das Formular die konkrete
+Fehlermeldung (z. B. Timeout, falsches Passwort, ungültiger Schlüssel) direkt
+an und behält alle bereits eingegebenen Werte bei.
 
 Für jeden weiteren Server die Integration erneut über "Integration hinzufügen"
 einrichten.

@@ -8,5 +8,5 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/Internerd/ha-server-updater/issues",
   "requirements": ["asyncssh==2.23.1"],
-  "version": "0.1.1"
+  "version": "0.1.2"
 }

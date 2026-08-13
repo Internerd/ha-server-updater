@@ -3,40 +3,23 @@
     "step": {
       "user": {
         "title": "Add server",
-        "description": "Connection details for the Linux server (Debian, Ubuntu or Proxmox VE).",
+        "description": "Connection details for the Linux server (Debian, Ubuntu or Proxmox VE). Provide either a password or a private key (or both, in which case the key is preferred).\n\n**Pasting a private SSH key**: On the machine that holds the key, print the private key file's contents (e.g. `cat ~/.ssh/id_ed25519` or `cat ~/.ssh/id_rsa`) and paste the **entire text** into the \"Private key\" field — including the first line `-----BEGIN ... PRIVATE KEY-----` and the last line `-----END ... PRIVATE KEY-----`. Do not use the `.pub` file, that is the public key. If the key is protected by a passphrase, enter it in the \"Passphrase\" field, otherwise leave it empty. The matching public key must already be present in the target server's `~/.ssh/authorized_keys` for the given user.",
         "data": {
           "name": "Name",
           "host": "Host / IP address",
           "port": "SSH port",
           "username": "Username",
-          "auth_method": "Authentication method"
-        }
-      },
-      "password": {
-        "title": "Password",
-        "data": {
-          "password": "SSH password"
-        }
-      },
-      "key": {
-        "title": "Private key",
-        "description": "Paste the contents of the private SSH key (PEM format).",
-        "data": {
-          "private_key": "Private key",
-          "private_key_passphrase": "Passphrase (optional)"
-        }
-      },
-      "sudo": {
-        "title": "Sudo settings",
-        "description": "Update and reboot commands usually require root access.",
-        "data": {
+          "password": "SSH password (optional if a key is used)",
+          "private_key": "Private SSH key (optional if a password is used)",
+          "private_key_passphrase": "Key passphrase (only if the key has one)",
           "use_sudo": "Run commands with sudo",
-          "sudo_password": "Sudo password (leave empty for NOPASSWD)"
+          "sudo_password": "Sudo password (leave empty for NOPASSWD or root login)"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect. Please check credentials and sudo configuration."
+      "cannot_connect": "Failed to connect: {error}",
+      "auth_required": "Please provide either a password or a private key."
     },
     "abort": {
       "already_configured": "This server is already configured."
@@ -50,14 +33,6 @@
           "scan_interval_minutes": "Polling interval (minutes)",
           "refresh_apt_cache": "Refresh package list before each check (apt-get update)"
         }
-      }
-    }
-  },
-  "selector": {
-    "auth_method": {
-      "options": {
-        "password": "Password",
-        "key": "Private key"
       }
     }
   },

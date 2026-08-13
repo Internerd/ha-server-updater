@@ -80,20 +80,31 @@ class ServerConnection:
     async def _connect(self) -> None:
         client_keys = None
         if self._private_key:
+            # Normalize copy-pasted key content: web textareas commonly
+            # introduce CRLF line endings or per-line trailing whitespace,
+            # both of which make PEM/OpenSSH key parsers fail with an
+            # unhelpful "Invalid private key" error.
+            normalized_key = "\n".join(
+                line.rstrip() for line in self._private_key.splitlines()
+            ).strip()
             try:
                 client_keys = [
                     asyncssh.import_private_key(
-                        self._private_key, passphrase=self._private_key_passphrase
+                        normalized_key, passphrase=self._private_key_passphrase or None
                     )
                 ]
             except asyncssh.KeyImportError as err:
-                raise ServerConnectionError(f"Ungültiger privater Schlüssel: {err}") from err
+                raise ServerConnectionError(
+                    f"Ungültiger privater Schlüssel ({err}). Bitte den vollständigen "
+                    "Inhalt der privaten Schlüsseldatei einfügen, inklusive der "
+                    "-----BEGIN...-----/-----END...----- Zeilen."
+                ) from err
 
         try:
             self._conn = await asyncio.wait_for(
                 asyncssh.connect(
                     self._host,
-                    port=self._port,
+                    port=int(self._port),
                     username=self._username,
                     password=self._password or None,
                     client_keys=client_keys,
