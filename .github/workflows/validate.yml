@@ -22,3 +22,9 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+          # hacs/action derives the download ref itself when "repository" is
+          # omitted, using the raw GITHUB_REF (e.g. "refs/heads/main"), which
+          # is not a valid raw.githubusercontent.com path segment and makes
+          # it fail to fetch hacs.json/manifest.json. Pass a plain
+          # "owner/repo@branch" ref explicitly to avoid that.
+          repository: ${{ github.repository }}@${{ github.head_ref || github.ref_name }}
