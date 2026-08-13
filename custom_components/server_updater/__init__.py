@@ -1,6 +1,7 @@
 """The Server Updater integration."""
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -8,6 +9,10 @@ from homeassistant.core import HomeAssistant
 
 from .const import CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL, DOMAIN, PLATFORMS
 from .coordinator import ServerUpdaterCoordinator
+from .docker_coordinator import ContainerCoordinator
+from .ssh_client import ServerUpdaterError
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -22,7 +27,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = ServerUpdaterCoordinator(hass, entry, update_interval)
     await coordinator.async_config_entry_first_refresh()
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    docker_coordinator = ContainerCoordinator(
+        hass, entry, coordinator.build_connection, update_interval
+    )
+    try:
+        await docker_coordinator.async_rescan()
+    except ServerUpdaterError:
+        # Docker support is best-effort: a server without Docker (or with a
+        # different SSH setup for it) shouldn't block the rest of the
+        # integration from loading. The user can retry via the rescan
+        # button once the underlying issue is fixed.
+        _LOGGER.debug(
+            "Erste Docker-Inventarisierung für %s fehlgeschlagen, wird ohne Container fortgesetzt",
+            entry.title,
+        )
+
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "apt": coordinator,
+        "docker": docker_coordinator,
+    }
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 

@@ -5,7 +5,7 @@ from datetime import timedelta
 
 DOMAIN = "server_updater"
 
-PLATFORMS = ["binary_sensor", "button"]
+PLATFORMS = ["binary_sensor", "button", "update"]
 
 # Config / options keys not already provided by homeassistant.const
 CONF_PRIVATE_KEY = "private_key"
@@ -26,6 +26,7 @@ CONNECT_TIMEOUT = 15
 COMMAND_TIMEOUT = 60
 UPDATE_TIMEOUT = 1800
 REBOOT_TIMEOUT = 20
+REGISTRY_TIMEOUT = 15
 
 MAX_PACKAGE_ATTRIBUTE = 50
 

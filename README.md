@@ -15,6 +15,7 @@ Es lassen sich beliebig viele Server konfigurieren, jeder als eigener
 ## Inhalt
 
 - [Bereitgestellte Entitäten](#bereitgestellte-entitäten-pro-server)
+- [Docker-Container-Updates](#docker-container-updates)
 - [Installation](#installation)
 - [Einrichtung](#einrichtung)
 - [Sudo-Konfiguration](#sudo-konfiguration)
@@ -34,9 +35,58 @@ Es lassen sich beliebig viele Server konfigurieren, jeder als eigener
 | `binary_sensor.<server>_reboot_required` | binary_sensor | An, wenn der Server einen Neustart benötigt (`/var/run/reboot-required`). Attribut: `reboot_required_packages` |
 | `button.<server>_update` | button | Führt `apt-get update && apt-get dist-upgrade` auf dem Server aus |
 | `button.<server>_update_and_reboot` | button | Wie oben, anschließend Neustart des Servers |
+| `button.<server>_rescan_containers` | button | Durchsucht den Server erneut nach laufenden Docker-Containern (siehe unten) |
+| `update.<container>` | update | Pro erkennbarem Docker-Container: zeigt an, ob ein neueres Image verfügbar ist (siehe unten) |
 
 Nach einem Tastendruck laufen Update/Reboot im Hintergrund; danach werden die
 Sensoren automatisch aktualisiert.
+
+## Docker-Container-Updates
+
+Läuft auf dem Server Docker, inventarisiert die Integration zusätzlich die
+laufenden Container und prüft, ob für deren Image eine neuere Version
+vorliegt – z. B. für einen Caddy-Container oder selbst gebaute Images aus
+GitHub-Actions-Workflows (GHCR).
+
+**Wie die Erkennung funktioniert:**
+
+1. Beim ersten Laden der Integration (und über den Button
+   `Container neu inventarisieren`) wird per SSH `docker ps`/`docker inspect`
+   ausgeführt, um laufende Container und deren Image-Referenz zu ermitteln.
+   Dieser Scan läuft **nicht** bei jeder regulären Abfrage, sondern nur beim
+   Start bzw. auf Knopfdruck – damit neu deployte Container erkannt werden,
+   ohne dass jedes Mal der ganze Server durchsucht wird.
+2. Für jeden gefundenen Container fragt Home Assistant direkt (nicht über
+   SSH) beim jeweiligen Container-Registry (Docker Hub, GHCR oder eine
+   andere Registry, die anonyme Docker-Registry-v2-Abfragen erlaubt) den
+   aktuellen Manifest-Digest des verwendeten Tags ab und vergleicht ihn mit
+   dem lokal laufenden Image. Das passiert bei jeder regulären Abfrage
+   (siehe Abfrageintervall in den Optionen).
+3. **Nur wenn dieser Abgleich zuverlässig möglich ist**, wird eine
+   `update`-Entität für den Container angelegt. Kein Update-Entity entsteht
+   für: Container, deren Image auf einen exakten Digest statt einen Tag
+   fixiert ist; Images aus privaten/authentifizierungspflichtigen
+   Registries; oder lokal gebaute Images ohne bekannte Registry-Herkunft.
+   Verschwindet ein Container beim nächsten Rescan, wird seine Entität
+   automatisch entfernt.
+
+Jede `update`-Entität zeigt die (verkürzten) Digests als installierte/neueste
+Version und – sofern das Image das OCI-Label
+`org.opencontainers.image.source` trägt (bei GitHub-Actions-Builds meist
+automatisch gesetzt) – einen Link zum Quell-Repository.
+
+**Bewusst kein automatisches "Installieren"**: Die Entitäten sind aktuell rein
+informativ. Ein Container automatisiert neu zu erstellen (`docker pull` +
+`stop`/`rm`/`run`) birgt ein reales Risiko, Volumes, Netzwerke oder
+Umgebungsvariablen nicht exakt zu reproduzieren – insbesondere bei zentralen
+Diensten wie einem Reverse Proxy. Das Update selbst manuell auf dem Server
+auszuführen (z. B. `docker compose pull && docker compose up -d`) bleibt
+bewusst dir überlassen.
+
+**Voraussetzungen**: `docker`-CLI-Zugriff über denselben SSH-Nutzer (bzw.
+`sudo`, falls aktiv) wie für die Paket-Updates, sowie eine
+Internetverbindung *von Home Assistant aus* zur jeweiligen Registry (nicht
+vom Zielserver).
 
 ## Installation
 
@@ -129,6 +179,8 @@ passwortlosen Root-Zugriff, statt vollen Sudo-Zugriff.
 - Debian, Ubuntu oder Proxmox VE (apt-basiert)
 - Erreichbarer SSH-Server
 - `sudo` installiert, sofern `use_sudo` aktiv ist
+- Optional für Docker-Container-Updates: Docker installiert und per SSH
+  erreichbar (siehe [Docker-Container-Updates](#docker-container-updates))
 
 ## Sicherheitshinweise
 
@@ -178,6 +230,16 @@ für alle drei Systeme zum Einsatz.
   regulären Poll-Intervall (oder manuellem "Neu laden" der Integration)
   aktualisieren sich die Sensoren wieder, sobald der Server wieder erreichbar
   ist
+
+**Keine `update`-Entitäten für Docker-Container, obwohl welche laufen**
+- Erwartet, wenn die Registry nicht anonym abfragbar ist (privates Image),
+  das Image auf einen Digest statt einen Tag fixiert ist, oder es lokal
+  ohne Registry-Herkunft gebaut wurde – siehe
+  [Docker-Container-Updates](#docker-container-updates)
+- `docker ps`/`docker inspect` auf dem Server manuell mit dem konfigurierten
+  SSH-Nutzer (bzw. `sudo docker ...`) testen
+- Nach dem Deployen neuer Container den Button
+  `Container neu inventarisieren` drücken
 
 Weitere Probleme bitte als [Issue](https://github.com/Internerd/ha-server-updater/issues/new/choose)
 melden.

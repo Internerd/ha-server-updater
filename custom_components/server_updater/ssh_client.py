@@ -6,6 +6,7 @@ set of commands works across all three.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass, field
 
@@ -42,6 +43,17 @@ class UpdateCheckResult:
     reboot_required: bool = False
     reboot_required_packages: list[str] = field(default_factory=list)
     os_name: str | None = None
+
+
+@dataclass
+class DockerContainerInfo:
+    """A running Docker container and its image's known provenance."""
+
+    id: str
+    name: str
+    image_ref: str
+    image_digest: str | None
+    labels: dict[str, str]
 
 
 class ServerConnection:
@@ -244,6 +256,77 @@ class ServerConnection:
             raise ServerCommandError(
                 f"apt-get dist-upgrade fehlgeschlagen: {str(upgrade.stderr).strip()}"
             )
+
+    async def async_list_docker_containers(self) -> list[DockerContainerInfo]:
+        """List running Docker containers and each one's image provenance.
+
+        Returns an empty list if Docker isn't installed or reachable rather
+        than raising, since not every server configured in this integration
+        is expected to run Docker.
+        """
+        ps_result = await self._run("docker ps --format '{{.ID}}'", use_sudo=True)
+        if ps_result.exit_status != 0:
+            _LOGGER.debug(
+                "docker ps auf %s nicht verfügbar (Exit %s): %s",
+                self._host,
+                ps_result.exit_status,
+                str(ps_result.stderr).strip(),
+            )
+            return []
+
+        container_ids = [
+            line.strip() for line in str(ps_result.stdout or "").splitlines() if line.strip()
+        ]
+        if not container_ids:
+            return []
+
+        inspect_result = await self._run(
+            f"docker inspect {' '.join(container_ids)}", use_sudo=True
+        )
+        try:
+            containers_raw = json.loads(str(inspect_result.stdout or "[]"))
+        except json.JSONDecodeError as err:
+            raise ServerCommandError(
+                f"Antwort von 'docker inspect' nicht lesbar: {err}"
+            ) from err
+
+        containers: list[DockerContainerInfo] = []
+        image_cache: dict[str, dict] = {}
+        for entry in containers_raw:
+            image_ref = (entry.get("Config") or {}).get("Image", "")
+            if image_ref and image_ref not in image_cache:
+                image_cache[image_ref] = await self._async_inspect_docker_image(image_ref)
+            info = image_cache.get(image_ref, {})
+            containers.append(
+                DockerContainerInfo(
+                    id=(entry.get("Id") or "")[:12],
+                    name=(entry.get("Name") or "").lstrip("/"),
+                    image_ref=image_ref,
+                    image_digest=info.get("digest"),
+                    labels=info.get("labels", {}),
+                )
+            )
+        return containers
+
+    async def _async_inspect_docker_image(self, image_ref: str) -> dict:
+        result = await self._run(f"docker image inspect {image_ref}", use_sudo=True)
+        if result.exit_status != 0:
+            return {}
+        try:
+            images_raw = json.loads(str(result.stdout or "[]"))
+        except json.JSONDecodeError:
+            return {}
+        if not images_raw:
+            return {}
+
+        image = images_raw[0]
+        repo_digests = image.get("RepoDigests") or []
+        digest = (
+            repo_digests[0].split("@", 1)[1]
+            if repo_digests and "@" in repo_digests[0]
+            else None
+        )
+        return {"digest": digest, "labels": (image.get("Config") or {}).get("Labels") or {}}
 
     async def async_reboot(self) -> None:
         """Reboot the remote server. The connection is expected to drop."""

@@ -6,6 +6,20 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-13
+
+### Hinzugefügt
+
+- Docker-Container-Erkennung und Update-Anzeige pro Server: Ein neuer
+  Button `Container neu inventarisieren` listet laufende Docker-Container
+  per SSH auf; für jeden Container, dessen Image-Update sich zuverlässig
+  über die jeweilige Registry (Docker Hub, GHCR o. Ä.) bestimmen lässt,
+  wird automatisch eine `update`-Entität angelegt bzw. bei Verschwinden des
+  Containers wieder entfernt. Die reguläre Abfrage prüft nur bekannte
+  Container erneut (per Digest-Abgleich, ohne SSH), das teure Inventar-Scan
+  passiert nur beim Start der Integration und auf Knopfdruck. Bewusst ohne
+  automatisches Installieren (siehe README).
+
 ## [0.1.2] - 2026-08-13
 
 ### Behoben
@@ -48,7 +62,8 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 - `button` zum Aktualisieren sowie Aktualisieren + Neustarten
 - HACS-Kompatibilität (`hacs.json`, versioniertes `manifest.json`)
 
-[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Internerd/ha-server-updater/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/Internerd/ha-server-updater/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Internerd/ha-server-updater/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Internerd/ha-server-updater/releases/tag/v0.1.0

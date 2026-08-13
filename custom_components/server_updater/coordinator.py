@@ -44,7 +44,7 @@ class ServerUpdaterCoordinator(DataUpdateCoordinator[UpdateCheckResult]):
         self.entry = entry
         self.busy = False
 
-    def _build_connection(self) -> ServerConnection:
+    def build_connection(self) -> ServerConnection:
         data = self.entry.data
         return ServerConnection(
             host=data[CONF_HOST],
@@ -62,7 +62,7 @@ class ServerUpdaterCoordinator(DataUpdateCoordinator[UpdateCheckResult]):
 
     async def _async_update_data(self) -> UpdateCheckResult:
         try:
-            async with self._build_connection() as conn:
+            async with self.build_connection() as conn:
                 return await conn.async_check_updates()
         except ServerUpdaterError as err:
             raise UpdateFailed(str(err)) from err
@@ -78,7 +78,7 @@ class ServerUpdaterCoordinator(DataUpdateCoordinator[UpdateCheckResult]):
         self.busy = True
         self.async_update_listeners()
         try:
-            async with self._build_connection() as conn:
+            async with self.build_connection() as conn:
                 await conn.async_apply_updates()
                 if reboot:
                     await conn.async_reboot()

@@ -25,7 +25,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up binary sensors for a server."""
-    coordinator: ServerUpdaterCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: ServerUpdaterCoordinator = hass.data[DOMAIN][entry.entry_id]["apt"]
     async_add_entities(
         [
             UpdatesAvailableBinarySensor(coordinator),

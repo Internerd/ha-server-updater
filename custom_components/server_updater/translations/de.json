@@ -51,6 +51,9 @@
       },
       "update_and_reboot": {
         "name": "Aktualisieren und neu starten"
+      },
+      "rescan_containers": {
+        "name": "Container neu inventarisieren"
       }
     }
   }

@@ -51,6 +51,9 @@
       },
       "update_and_reboot": {
         "name": "Update and reboot"
+      },
+      "rescan_containers": {
+        "name": "Rescan containers"
       }
     }
   }
