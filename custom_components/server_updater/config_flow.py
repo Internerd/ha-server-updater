@@ -164,12 +164,11 @@ class ServerUpdaterConfigFlow(ConfigFlow, domain=DOMAIN):
             sudo_password=self._data.get(CONF_SUDO_PASSWORD),
         )
         try:
-            await conn.async_test_connection()
+            async with conn:
+                await conn.async_test_connection()
         except ServerUpdaterError as err:
             _LOGGER.warning("Verbindungstest fehlgeschlagen: %s", err)
             errors["base"] = "cannot_connect"
-        finally:
-            await conn.close()
 
         return errors
 
