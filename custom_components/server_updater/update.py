@@ -6,9 +6,10 @@ button runs) rather than being fixed at platform setup time.
 """
 from __future__ import annotations
 
-from homeassistant.components.update import UpdateEntity
+from homeassistant.components.update import UpdateEntity, UpdateEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -16,8 +17,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .docker_coordinator import ContainerCoordinator, ContainerUpdateStatus
+from .ssh_client import ServerUpdaterError
 
 ATTR_IMAGE = "image"
+ATTR_COMPOSE_SERVICE = "compose_service"
 
 
 async def async_setup_entry(
@@ -117,11 +120,28 @@ class ContainerUpdateEntity(CoordinatorEntity[ContainerCoordinator], UpdateEntit
         return status.container.labels.get("org.opencontainers.image.source")
 
     @property
+    def supported_features(self) -> UpdateEntityFeature:
+        status = self._status
+        if status is not None and status.compose_installable:
+            return UpdateEntityFeature.INSTALL
+        return UpdateEntityFeature(0)
+
+    @property
     def extra_state_attributes(self) -> dict:
         status = self._status
         if status is None:
             return {}
-        return {ATTR_IMAGE: status.container.image_ref}
+        return {
+            ATTR_IMAGE: status.container.image_ref,
+            ATTR_COMPOSE_SERVICE: status.compose_service,
+        }
+
+    async def async_install(self, version: str | None, backup: bool, **kwargs) -> None:
+        """Pull and recreate this container via its Docker Compose service."""
+        try:
+            await self.coordinator.async_install_update(self._container_id)
+        except ServerUpdaterError as err:
+            raise HomeAssistantError(str(err)) from err
 
 
 def _short_digest(digest: str) -> str:

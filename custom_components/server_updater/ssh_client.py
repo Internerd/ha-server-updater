@@ -328,6 +328,46 @@ class ServerConnection:
         )
         return {"digest": digest, "labels": (image.get("Config") or {}).get("Labels") or {}}
 
+    async def async_check_paths_exist(self, paths: list[str]) -> bool:
+        """Check whether all given absolute paths exist on the server."""
+        if not paths:
+            return False
+        check = " && ".join(f"test -f '{path}'" for path in paths)
+        result = await self._run(check, use_sudo=True)
+        return result.exit_status == 0
+
+    async def async_apply_compose_update(
+        self, config_files: list[str], service: str, working_dir: str | None = None
+    ) -> None:
+        """Pull and recreate a single Docker Compose service.
+
+        Uses `docker compose` (v2) against the container's own recorded
+        compose files/service, so the original volumes/networks/env are
+        preserved instead of being reconstructed by hand.
+        """
+        file_args = " ".join(f"-f '{path}'" for path in config_files)
+        project_dir_arg = f"--project-directory '{working_dir}' " if working_dir else ""
+
+        pull = await self._run(
+            f"docker compose {project_dir_arg}{file_args} pull {service}",
+            use_sudo=True,
+            timeout=UPDATE_TIMEOUT,
+        )
+        if pull.exit_status != 0:
+            raise ServerCommandError(
+                f"docker compose pull fehlgeschlagen: {str(pull.stderr).strip()}"
+            )
+
+        up = await self._run(
+            f"docker compose {project_dir_arg}{file_args} up -d {service}",
+            use_sudo=True,
+            timeout=UPDATE_TIMEOUT,
+        )
+        if up.exit_status != 0:
+            raise ServerCommandError(
+                f"docker compose up fehlgeschlagen: {str(up.stderr).strip()}"
+            )
+
     async def async_reboot(self) -> None:
         """Reboot the remote server. The connection is expected to drop."""
         try:

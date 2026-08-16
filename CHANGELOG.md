@@ -6,6 +6,19 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-13
+
+### Hinzugefügt
+
+- Installieren-Button für Docker-Container-`update`-Entitäten, sofern der
+  Container von Docker Compose (v2) verwaltet wird (erkannt über die
+  `com.docker.compose.*`-Labels) und die zugehörige Compose-Datei beim
+  letzten Scan noch am hinterlegten Pfad existierte. Führt
+  `docker compose pull` + `up -d` für genau diesen Service aus, wodurch
+  Volumes/Netzwerke/Env korrekt aus der Original-Compose-Datei übernommen
+  werden. Nach dem Update wird automatisch neu inventarisiert. Container
+  ohne diese Labels bleiben wie zuvor rein informativ.
+
 ## [0.2.0] - 2026-08-13
 
 ### Hinzugefügt
@@ -62,7 +75,8 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 - `button` zum Aktualisieren sowie Aktualisieren + Neustarten
 - HACS-Kompatibilität (`hacs.json`, versioniertes `manifest.json`)
 
-[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Internerd/ha-server-updater/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Internerd/ha-server-updater/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/Internerd/ha-server-updater/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Internerd/ha-server-updater/compare/v0.1.0...v0.1.1

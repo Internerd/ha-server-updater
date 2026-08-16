@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -24,6 +24,11 @@ from .ssh_client import DockerContainerInfo, ServerConnection, ServerUpdaterErro
 
 _LOGGER = logging.getLogger(__name__)
 
+# Labels Docker Compose (v2) sets automatically on containers it creates.
+COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
+COMPOSE_CONFIG_FILES_LABEL = "com.docker.compose.project.config_files"
+COMPOSE_WORKING_DIR_LABEL = "com.docker.compose.project.working_dir"
+
 
 @dataclass
 class ContainerUpdateStatus:
@@ -33,6 +38,19 @@ class ContainerUpdateStatus:
     checkable: bool = False
     update_available: bool | None = None
     latest_digest: str | None = None
+    compose_service: str | None = None
+    compose_config_files: list[str] = field(default_factory=list)
+    compose_working_dir: str | None = None
+    compose_installable: bool = False
+    installing: bool = False
+
+
+def _extract_compose_info(container: DockerContainerInfo) -> tuple[str | None, list[str], str | None]:
+    service = container.labels.get(COMPOSE_SERVICE_LABEL)
+    raw_config_files = container.labels.get(COMPOSE_CONFIG_FILES_LABEL)
+    config_files = [f for f in raw_config_files.split(",") if f] if raw_config_files else []
+    working_dir = container.labels.get(COMPOSE_WORKING_DIR_LABEL)
+    return service, config_files, working_dir
 
 
 class ContainerCoordinator(DataUpdateCoordinator[dict[str, ContainerUpdateStatus]]):
@@ -79,19 +97,29 @@ class ContainerCoordinator(DataUpdateCoordinator[dict[str, ContainerUpdateStatus
             async with conn:
                 discovered = await conn.async_list_docker_containers()
 
-            discovered_ids = {container.id for container in discovered}
-            removed_ids = [cid for cid in self.containers if cid not in discovered_ids]
-            for cid in removed_ids:
-                self.containers.pop(cid, None)
+                discovered_ids = {container.id for container in discovered}
+                removed_ids = [cid for cid in self.containers if cid not in discovered_ids]
+                for cid in removed_ids:
+                    self.containers.pop(cid, None)
 
-            added_ids: list[str] = []
-            for container in discovered:
-                existing = self.containers.get(container.id)
-                if existing is None:
-                    self.containers[container.id] = ContainerUpdateStatus(container=container)
-                    added_ids.append(container.id)
-                else:
-                    existing.container = container
+                added_ids: list[str] = []
+                for container in discovered:
+                    service, config_files, working_dir = _extract_compose_info(container)
+                    compose_installable = bool(
+                        service and config_files
+                    ) and await conn.async_check_paths_exist(config_files)
+
+                    existing = self.containers.get(container.id)
+                    if existing is None:
+                        existing = ContainerUpdateStatus(container=container)
+                        self.containers[container.id] = existing
+                        added_ids.append(container.id)
+                    else:
+                        existing.container = container
+                    existing.compose_service = service
+                    existing.compose_config_files = config_files
+                    existing.compose_working_dir = working_dir
+                    existing.compose_installable = compose_installable
 
             await self._async_check_all()
 
@@ -109,6 +137,34 @@ class ContainerCoordinator(DataUpdateCoordinator[dict[str, ContainerUpdateStatus
         finally:
             self.scanning = False
             self.async_update_listeners()
+
+    async def async_install_update(self, container_id: str) -> None:
+        """Pull and recreate one container via its recorded Docker Compose service."""
+        status = self.containers.get(container_id)
+        if status is None:
+            raise ServerUpdaterError(
+                "Container nicht mehr im Inventar bekannt, bitte neu inventarisieren"
+            )
+        if not status.compose_installable or not status.compose_service:
+            raise ServerUpdaterError(
+                "Für diesen Container ist keine automatische Aktualisierung möglich"
+            )
+
+        status.installing = True
+        self.async_update_listeners()
+        try:
+            conn = self._connection_factory()
+            async with conn:
+                await conn.async_apply_compose_update(
+                    status.compose_config_files,
+                    status.compose_service,
+                    status.compose_working_dir,
+                )
+        finally:
+            status.installing = False
+            self.async_update_listeners()
+
+        await self.async_rescan()
 
     async def _async_update_data(self) -> dict[str, ContainerUpdateStatus]:
         await self._async_check_all()

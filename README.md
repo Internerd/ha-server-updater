@@ -36,7 +36,7 @@ Es lassen sich beliebig viele Server konfigurieren, jeder als eigener
 | `button.<server>_update` | button | Führt `apt-get update && apt-get dist-upgrade` auf dem Server aus |
 | `button.<server>_update_and_reboot` | button | Wie oben, anschließend Neustart des Servers |
 | `button.<server>_rescan_containers` | button | Durchsucht den Server erneut nach laufenden Docker-Containern (siehe unten) |
-| `update.<container>` | update | Pro erkennbarem Docker-Container: zeigt an, ob ein neueres Image verfügbar ist (siehe unten) |
+| `update.<container>` | update | Pro erkennbarem Docker-Container: zeigt an, ob ein neueres Image verfügbar ist; bei Docker-Compose-Containern zusätzlich ein Installieren-Button (siehe unten) |
 
 Nach einem Tastendruck laufen Update/Reboot im Hintergrund; danach werden die
 Sensoren automatisch aktualisiert.
@@ -75,18 +75,36 @@ Version und – sofern das Image das OCI-Label
 `org.opencontainers.image.source` trägt (bei GitHub-Actions-Builds meist
 automatisch gesetzt) – einen Link zum Quell-Repository.
 
-**Bewusst kein automatisches "Installieren"**: Die Entitäten sind aktuell rein
-informativ. Ein Container automatisiert neu zu erstellen (`docker pull` +
-`stop`/`rm`/`run`) birgt ein reales Risiko, Volumes, Netzwerke oder
-Umgebungsvariablen nicht exakt zu reproduzieren – insbesondere bei zentralen
-Diensten wie einem Reverse Proxy. Das Update selbst manuell auf dem Server
-auszuführen (z. B. `docker compose pull && docker compose up -d`) bleibt
-bewusst dir überlassen.
+**"Installieren"-Button – nur für Docker-Compose-verwaltete Container**: Setzt
+Docker Compose (v2, `docker compose ...`) den Container auf, hinterlegt es
+automatisch die Labels `com.docker.compose.service` und
+`com.docker.compose.project.config_files` (Pfad zur `docker-compose.yml`).
+Sind diese vorhanden **und** existiert die Compose-Datei beim letzten Scan
+noch am hinterlegten Pfad auf dem Server, bekommt die `update`-Entität einen
+Installieren-Button. Ein Klick führt aus:
+
+```bash
+docker compose -f <config_files> [--project-directory <working_dir>] pull <service>
+docker compose -f <config_files> [--project-directory <working_dir>] up -d <service>
+```
+
+Das erstellt den Container aus der originalen Compose-Datei neu und
+übernimmt damit automatisch Volumes, Netzwerke und Umgebungsvariablen
+korrekt – im Gegensatz zu einer nachgebauten `docker run`-Zeile. Nach dem
+Update wird automatisch neu inventarisiert. Für Container ohne diese Labels
+(reines `docker run`, oder Compose v1 mit dem separaten `docker-compose`-
+Binary) bleibt die Entität rein informativ, wie oben beschrieben – ein
+automatisiertes Neuerstellen ohne bekannte, vollständige Original-
+Konfiguration ist bewusst nicht implementiert, das Risiko einer falsch
+rekonstruierten Konfiguration (fehlende Volumes/Netzwerke/Env) wäre zu hoch,
+insbesondere bei zentralen Diensten wie einem Reverse Proxy.
 
 **Voraussetzungen**: `docker`-CLI-Zugriff über denselben SSH-Nutzer (bzw.
 `sudo`, falls aktiv) wie für die Paket-Updates, sowie eine
 Internetverbindung *von Home Assistant aus* zur jeweiligen Registry (nicht
-vom Zielserver).
+vom Zielserver). Für den Installieren-Button zusätzlich: Docker Compose v2
+auf dem Server, und die Compose-Datei muss unter dem Pfad erreichbar sein,
+den Docker sich beim Erstellen des Containers gemerkt hat.
 
 ## Installation
 
@@ -240,6 +258,19 @@ für alle drei Systeme zum Einsatz.
   SSH-Nutzer (bzw. `sudo docker ...`) testen
 - Nach dem Deployen neuer Container den Button
   `Container neu inventarisieren` drücken
+
+**`update`-Entität hat keinen Installieren-Button**
+- Erwartet für Container ohne Docker Compose (v2) oder mit veraltetem
+  Compose-Datei-Pfad (z. B. nach Verschieben des Stacks) – nach einem Fix
+  einmal `Container neu inventarisieren` drücken, damit der Pfad neu
+  geprüft wird
+- `docker compose -f <pfad> config` mit dem konfigurierten SSH-Nutzer manuell
+  testen, um Rechte-/Pfadprobleme einzugrenzen
+
+**Installieren schlägt fehl**
+- Fehlermeldung im Home-Assistant-Log (`server_updater`) enthält die Ausgabe
+  von `docker compose pull`/`up -d`; meist Rechte- oder Netzwerkprobleme auf
+  dem Server selbst
 
 Weitere Probleme bitte als [Issue](https://github.com/Internerd/ha-server-updater/issues/new/choose)
 melden.
