@@ -6,6 +6,29 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-12
+
+### Behoben
+
+- Installieren-Button erschien nie: Die `com.docker.compose.*`-Labels wurden
+  aus den Image-Labels statt aus den Container-Labels gelesen, wodurch kein
+  Compose-Container als installierbar erkannt wurde. Jetzt werden Image- und
+  Container-Labels zusammengeführt.
+- Doppelte Container-Entitäten und -Geräte (`update.<name>_2`, `_3`, …):
+  Entitäten waren an die Container-ID gebunden, die sich bei jedem
+  Neuerstellen ändert. Sie sind jetzt an den Containernamen gebunden;
+  verwaiste Entitäten/Geräte (auch aus älteren Versionen) werden nach jedem
+  erfolgreichen Scan entfernt, bevor neue angelegt werden.
+- Für Container, deren Update-Stand nicht ermittelbar ist (z. B. lokal
+  gebaute Images), wurde entgegen der Dokumentation trotzdem eine dauerhaft
+  nicht verfügbare Entität angelegt. Entitäten entstehen jetzt erst, sobald
+  der Abgleich mit der Registry einmal gelungen ist.
+
+### Geändert
+
+- `update`-Entitäten zeigen während einer laufenden Installation den
+  Fortschrittszustand (`in_progress`) an.
+
 ## [0.3.0] - 2026-08-13
 
 ### Hinzugefügt
@@ -75,7 +98,8 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 - `button` zum Aktualisieren sowie Aktualisieren + Neustarten
 - HACS-Kompatibilität (`hacs.json`, versioniertes `manifest.json`)
 
-[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/Internerd/ha-server-updater/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Internerd/ha-server-updater/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Internerd/ha-server-updater/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/Internerd/ha-server-updater/compare/v0.1.1...v0.1.2

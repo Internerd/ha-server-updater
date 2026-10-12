@@ -66,9 +66,19 @@ GitHub-Actions-Workflows (GHCR).
    `update`-Entität für den Container angelegt. Kein Update-Entity entsteht
    für: Container, deren Image auf einen exakten Digest statt einen Tag
    fixiert ist; Images aus privaten/authentifizierungspflichtigen
-   Registries; oder lokal gebaute Images ohne bekannte Registry-Herkunft.
+   Registries; oder lokal gebaute Images ohne bekannte Registry-Herkunft
+   (z. B. per `docker build` / Compose-`build:` erzeugt – hier fehlt der
+   `RepoDigest`, mit dem sich der laufende Stand vergleichen ließe).
    Verschwindet ein Container beim nächsten Rescan, wird seine Entität
-   automatisch entfernt.
+   samt Gerät automatisch entfernt.
+
+Entitäten und Geräte sind an den **Containernamen** gebunden, nicht an die
+Container-ID. Wird ein Container neu erstellt (Update über den
+Installieren-Button, `docker compose up --force-recreate`, …), bekommt er
+eine neue ID, behält aber Namen, Entität und Entitäts-ID. Verwaiste
+Entitäten/Geräte älterer Versionen (≤ 0.3.0, die noch an die Container-ID
+gebunden waren und dadurch Duplikate wie `update.<name>_2` erzeugt haben)
+werden beim ersten erfolgreichen Scan nach dem Update automatisch entfernt.
 
 Jede `update`-Entität zeigt die (verkürzten) Digests als installierte/neueste
 Version und – sofern das Image das OCI-Label
@@ -77,8 +87,11 @@ automatisch gesetzt) – einen Link zum Quell-Repository.
 
 **"Installieren"-Button – nur für Docker-Compose-verwaltete Container**: Setzt
 Docker Compose (v2, `docker compose ...`) den Container auf, hinterlegt es
-automatisch die Labels `com.docker.compose.service` und
+automatisch die Container-Labels `com.docker.compose.service` und
 `com.docker.compose.project.config_files` (Pfad zur `docker-compose.yml`).
+Sie werden aus `docker inspect <container>` gelesen (nicht aus den
+Image-Labels); das Attribut `compose_service` der Entität zeigt den
+erkannten Service an.
 Sind diese vorhanden **und** existiert die Compose-Datei beim letzten Scan
 noch am hinterlegten Pfad auf dem Server, bekommt die `update`-Entität einen
 Installieren-Button. Ein Klick führt aus:
@@ -259,7 +272,15 @@ für alle drei Systeme zum Einsatz.
 - Nach dem Deployen neuer Container den Button
   `Container neu inventarisieren` drücken
 
+**Doppelte Container-Entitäten (`update.<name>_2`, `_3`, …)**
+- Entstanden in Version ≤ 0.3.0 bei jedem Neuerstellen eines Containers.
+  Ab 0.3.1 werden sie beim ersten erfolgreichen Scan entfernt; danach
+  ggf. die neu angelegte Entität in `update.<name>` umbenennen, falls
+  sie noch ein Suffix trägt (Automationen/Dashboards prüfen)
+
 **`update`-Entität hat keinen Installieren-Button**
+- Attribut `compose_service` prüfen: ist es leer, wurde der Container nicht
+  als Compose-Service erkannt
 - Erwartet für Container ohne Docker Compose (v2) oder mit veraltetem
   Compose-Datei-Pfad (z. B. nach Verschieben des Stacks) – nach einem Fix
   einmal `Container neu inventarisieren` drücken, damit der Pfad neu

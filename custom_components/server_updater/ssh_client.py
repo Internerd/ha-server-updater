@@ -47,7 +47,11 @@ class UpdateCheckResult:
 
 @dataclass
 class DockerContainerInfo:
-    """A running Docker container and its image's known provenance."""
+    """A running Docker container and its image's known provenance.
+
+    `labels` holds the image's labels merged with the container's own
+    labels (the latter win on conflicts).
+    """
 
     id: str
     name: str
@@ -297,13 +301,21 @@ class ServerConnection:
             if image_ref and image_ref not in image_cache:
                 image_cache[image_ref] = await self._async_inspect_docker_image(image_ref)
             info = image_cache.get(image_ref, {})
+            # Docker Compose sets its com.docker.compose.* labels on the
+            # container, not on the image, while OCI labels such as
+            # org.opencontainers.image.source live on the image. Merge both,
+            # with container labels taking precedence.
+            labels = {
+                **info.get("labels", {}),
+                **((entry.get("Config") or {}).get("Labels") or {}),
+            }
             containers.append(
                 DockerContainerInfo(
                     id=(entry.get("Id") or "")[:12],
                     name=(entry.get("Name") or "").lstrip("/"),
                     image_ref=image_ref,
                     image_digest=info.get("digest"),
-                    labels=info.get("labels", {}),
+                    labels=labels,
                 )
             )
         return containers

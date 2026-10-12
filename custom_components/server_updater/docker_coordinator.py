@@ -5,6 +5,10 @@ explicitly triggered (async_rescan, wired to a button entity and to the
 initial setup) rather than on every poll. The regular coordinator refresh
 only re-checks the already-known containers' images against their
 registries, which is cheap and doesn't touch the server over SSH at all.
+
+Containers are keyed by name rather than by container ID: recreating a
+container (docker compose up after a pull, --force-recreate, ...) gives it
+a new ID but keeps its name, and the entity for it should survive that.
 """
 from __future__ import annotations
 
@@ -43,6 +47,9 @@ class ContainerUpdateStatus:
     compose_working_dir: str | None = None
     compose_installable: bool = False
     installing: bool = False
+    # Set once the container's image update could be determined at least
+    # once; only tracked containers get an update entity.
+    tracked: bool = False
 
 
 def _extract_compose_info(container: DockerContainerInfo) -> tuple[str | None, list[str], str | None]:
@@ -72,21 +79,18 @@ class ContainerCoordinator(DataUpdateCoordinator[dict[str, ContainerUpdateStatus
         self.entry = entry
         self._connection_factory = connection_factory
         self.containers: dict[str, ContainerUpdateStatus] = {}
-        self._added_listeners: list[Callable[[list[str]], None]] = []
-        self._removed_listeners: list[Callable[[list[str]], None]] = []
+        self._inventory_listeners: list[Callable[[], None]] = []
         self.scanning = False
+        self.inventory_loaded = False
 
-    def async_add_containers_added_listener(
-        self, listener: Callable[[list[str]], None]
-    ) -> None:
-        """Register a callback invoked with newly discovered container IDs."""
-        self._added_listeners.append(listener)
+    @property
+    def tracked_names(self) -> list[str]:
+        """Names of containers that should have an update entity."""
+        return [name for name, status in self.containers.items() if status.tracked]
 
-    def async_add_containers_removed_listener(
-        self, listener: Callable[[list[str]], None]
-    ) -> None:
-        """Register a callback invoked with container IDs no longer present."""
-        self._removed_listeners.append(listener)
+    def async_add_inventory_listener(self, listener: Callable[[], None]) -> None:
+        """Register a callback invoked after every successful inventory scan."""
+        self._inventory_listeners.append(listener)
 
     async def async_rescan(self) -> None:
         """Re-discover containers on the server and refresh their update status."""
@@ -97,23 +101,20 @@ class ContainerCoordinator(DataUpdateCoordinator[dict[str, ContainerUpdateStatus
             async with conn:
                 discovered = await conn.async_list_docker_containers()
 
-                discovered_ids = {container.id for container in discovered}
-                removed_ids = [cid for cid in self.containers if cid not in discovered_ids]
-                for cid in removed_ids:
-                    self.containers.pop(cid, None)
+                discovered_names = {container.name for container in discovered}
+                for name in [n for n in self.containers if n not in discovered_names]:
+                    self.containers.pop(name, None)
 
-                added_ids: list[str] = []
                 for container in discovered:
                     service, config_files, working_dir = _extract_compose_info(container)
                     compose_installable = bool(
                         service and config_files
                     ) and await conn.async_check_paths_exist(config_files)
 
-                    existing = self.containers.get(container.id)
+                    existing = self.containers.get(container.name)
                     if existing is None:
                         existing = ContainerUpdateStatus(container=container)
-                        self.containers[container.id] = existing
-                        added_ids.append(container.id)
+                        self.containers[container.name] = existing
                     else:
                         existing.container = container
                     existing.compose_service = service
@@ -123,10 +124,13 @@ class ContainerCoordinator(DataUpdateCoordinator[dict[str, ContainerUpdateStatus
 
             await self._async_check_all()
 
-            for listener in self._added_listeners:
-                listener(added_ids)
-            for listener in self._removed_listeners:
-                listener(removed_ids)
+            for status in self.containers.values():
+                if status.checkable:
+                    status.tracked = True
+
+            self.inventory_loaded = True
+            for listener in self._inventory_listeners:
+                listener()
 
             self.async_set_updated_data(self.containers)
         except ServerUpdaterError:
@@ -138,9 +142,9 @@ class ContainerCoordinator(DataUpdateCoordinator[dict[str, ContainerUpdateStatus
             self.scanning = False
             self.async_update_listeners()
 
-    async def async_install_update(self, container_id: str) -> None:
+    async def async_install_update(self, name: str) -> None:
         """Pull and recreate one container via its recorded Docker Compose service."""
-        status = self.containers.get(container_id)
+        status = self.containers.get(name)
         if status is None:
             raise ServerUpdaterError(
                 "Container nicht mehr im Inventar bekannt, bitte neu inventarisieren"

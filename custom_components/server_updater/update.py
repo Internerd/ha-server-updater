@@ -10,6 +10,7 @@ from homeassistant.components.update import UpdateEntity, UpdateEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -23,36 +24,68 @@ ATTR_IMAGE = "image"
 ATTR_COMPOSE_SERVICE = "compose_service"
 
 
+def _container_unique_id(entry: ConfigEntry, name: str) -> str:
+    return f"{entry.entry_id}_docker_{name}"
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up (dynamically maintained) container update entities for a server."""
     coordinator: ContainerCoordinator = hass.data[DOMAIN][entry.entry_id]["docker"]
-    known_ids: set[str] = set()
+    known_names: set[str] = set()
 
-    def _add_containers(container_ids: list[str]) -> None:
+    def _sync_entities() -> None:
+        tracked = coordinator.tracked_names
+        # Remove stale entities/devices first, so that replacements don't get
+        # an entity_id suffix (_2, _3, ...) while the old one is still
+        # registered.
+        _remove_stale(hass, entry, {_container_unique_id(entry, n) for n in tracked})
+        known_names.intersection_update(tracked)
+
         new_entities = [
-            ContainerUpdateEntity(coordinator, entry, container_id)
-            for container_id in container_ids
-            if container_id not in known_ids
+            ContainerUpdateEntity(coordinator, entry, name)
+            for name in tracked
+            if name not in known_names
         ]
-        known_ids.update(container_ids)
+        known_names.update(tracked)
         if new_entities:
             async_add_entities(new_entities)
 
-    def _remove_containers(container_ids: list[str]) -> None:
-        registry = er.async_get(hass)
-        for container_id in container_ids:
-            known_ids.discard(container_id)
-            unique_id = f"{entry.entry_id}_docker_{container_id}"
-            if entity_id := registry.async_get_entity_id("update", DOMAIN, unique_id):
-                registry.async_remove(entity_id)
+    coordinator.async_add_inventory_listener(_sync_entities)
 
-    coordinator.async_add_containers_added_listener(_add_containers)
-    coordinator.async_add_containers_removed_listener(_remove_containers)
+    # Without a successful scan there is no reliable inventory to compare
+    # against, so leave the registry alone until the next (manual) rescan.
+    if coordinator.inventory_loaded:
+        _sync_entities()
 
-    if coordinator.containers:
-        _add_containers(list(coordinator.containers))
+
+def _remove_stale(hass: HomeAssistant, entry: ConfigEntry, keep_unique_ids: set[str]) -> None:
+    """Remove container entities and devices of this entry not in keep_unique_ids.
+
+    Also cleans up leftovers from earlier versions, which keyed containers by
+    their (non-stable) container ID.
+    """
+    prefix = f"{entry.entry_id}_docker_"
+
+    entity_registry = er.async_get(hass)
+    for entity_entry in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if (
+            entity_entry.domain == "update"
+            and entity_entry.unique_id.startswith(prefix)
+            and entity_entry.unique_id not in keep_unique_ids
+        ):
+            entity_registry.async_remove(entity_entry.entity_id)
+
+    device_registry = dr.async_get(hass)
+    for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
+        container_ids = {
+            identifier
+            for domain, identifier in device.identifiers
+            if domain == DOMAIN and identifier.startswith(prefix)
+        }
+        if container_ids and not container_ids & keep_unique_ids:
+            device_registry.async_remove_device(device.id)
 
 
 class ContainerUpdateEntity(CoordinatorEntity[ContainerCoordinator], UpdateEntity):
@@ -62,16 +95,16 @@ class ContainerUpdateEntity(CoordinatorEntity[ContainerCoordinator], UpdateEntit
     _attr_name = None
 
     def __init__(
-        self, coordinator: ContainerCoordinator, entry: ConfigEntry, container_id: str
+        self, coordinator: ContainerCoordinator, entry: ConfigEntry, name: str
     ) -> None:
         super().__init__(coordinator)
         self._entry = entry
-        self._container_id = container_id
-        self._attr_unique_id = f"{entry.entry_id}_docker_{container_id}"
+        self._container_name = name
+        self._attr_unique_id = _container_unique_id(entry, name)
 
     @property
     def _status(self) -> ContainerUpdateStatus | None:
-        return self.coordinator.containers.get(self._container_id)
+        return self.coordinator.containers.get(self._container_name)
 
     @property
     def available(self) -> bool:
@@ -81,11 +114,10 @@ class ContainerUpdateEntity(CoordinatorEntity[ContainerCoordinator], UpdateEntit
     @property
     def device_info(self) -> DeviceInfo:
         status = self._status
-        name = status.container.name if status else self._container_id
         model = status.container.image_ref if status else None
         return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._entry.entry_id}_docker_{self._container_id}")},
-            name=name,
+            identifiers={(DOMAIN, _container_unique_id(self._entry, self._container_name))},
+            name=self._container_name,
             manufacturer="Docker",
             model=model,
             via_device=(DOMAIN, self._entry.entry_id),
@@ -120,6 +152,11 @@ class ContainerUpdateEntity(CoordinatorEntity[ContainerCoordinator], UpdateEntit
         return status.container.labels.get("org.opencontainers.image.source")
 
     @property
+    def in_progress(self) -> bool:
+        status = self._status
+        return status is not None and status.installing
+
+    @property
     def supported_features(self) -> UpdateEntityFeature:
         status = self._status
         if status is not None and status.compose_installable:
@@ -139,7 +176,7 @@ class ContainerUpdateEntity(CoordinatorEntity[ContainerCoordinator], UpdateEntit
     async def async_install(self, version: str | None, backup: bool, **kwargs) -> None:
         """Pull and recreate this container via its Docker Compose service."""
         try:
-            await self.coordinator.async_install_update(self._container_id)
+            await self.coordinator.async_install_update(self._container_name)
         except ServerUpdaterError as err:
             raise HomeAssistantError(str(err)) from err
 
