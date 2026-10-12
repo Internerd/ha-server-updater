@@ -6,6 +6,17 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-12
+
+### Geändert
+
+- Scheitert `apt-get dist-upgrade` am Herunterladen einzelner Pakete (z. B.
+  `404 Not Found`, weil der Mirror gerade synchronisiert), werden die
+  Paketlisten nach 30 s erneut und ohne HTTP-Cache geladen und das Upgrade
+  einmal wiederholt. Da apt bei fehlgeschlagenem Download nichts installiert,
+  ist das gefahrlos. Scheitert auch der zweite Versuch, gibt es eine
+  verständliche Fehlermeldung statt der reinen apt-Ausgabe.
+
 ## [0.4.0] - 2026-10-12
 
 ### Hinzugefügt
@@ -120,7 +131,8 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 - `button` zum Aktualisieren sowie Aktualisieren + Neustarten
 - HACS-Kompatibilität (`hacs.json`, versioniertes `manifest.json`)
 
-[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/Internerd/ha-server-updater/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Internerd/ha-server-updater/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/Internerd/ha-server-updater/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Internerd/ha-server-updater/compare/v0.2.0...v0.3.0

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 import asyncssh
 
 from .const import (
+    APT_FETCH_RETRY_DELAY,
     COMMAND_TIMEOUT,
     CONNECT_TIMEOUT,
     REBOOT_TIMEOUT,
@@ -272,25 +273,57 @@ class ServerConnection:
         )
 
     async def async_apply_updates(self) -> None:
-        """Run apt-get update and a non-interactive dist-upgrade."""
-        update = await self._run(
-            "apt-get update -qq", use_sudo=True, timeout=COMMAND_TIMEOUT
-        )
+        """Run apt-get update and a non-interactive dist-upgrade.
+
+        If downloading packages fails (typically a 404 because the mirror's
+        package index references files it doesn't serve yet), the package
+        lists are refreshed once more, bypassing HTTP caches, and the upgrade
+        is retried once - which is what apt itself suggests in that case.
+        apt doesn't install anything when a download fails, so the retry is
+        safe.
+        """
+        await self._async_apt_update("apt-get update -qq")
+
+        upgrade = await self._async_dist_upgrade()
+        if upgrade.exit_status != 0 and _is_fetch_failure(str(upgrade.stderr)):
+            _LOGGER.warning(
+                "Pakete auf %s konnten nicht heruntergeladen werden, aktualisiere "
+                "Paketlisten und versuche es in %s s erneut: %s",
+                self._host,
+                APT_FETCH_RETRY_DELAY,
+                str(upgrade.stderr).strip(),
+            )
+            await asyncio.sleep(APT_FETCH_RETRY_DELAY)
+            await self._async_apt_update(
+                "apt-get update -qq -o Acquire::http::No-Cache=true"
+            )
+            upgrade = await self._async_dist_upgrade()
+
+        if upgrade.exit_status != 0:
+            stderr = str(upgrade.stderr).strip()
+            if _is_fetch_failure(stderr):
+                raise ServerCommandError(
+                    "Paketquelle liefert einzelne Pakete nicht aus (vermutlich wird "
+                    "der Mirror gerade synchronisiert), auch nach erneutem "
+                    "apt-get update. Es wurde nichts installiert, bitte später "
+                    f"erneut versuchen. Details: {stderr}"
+                )
+            raise ServerCommandError(f"apt-get dist-upgrade fehlgeschlagen: {stderr}")
+
+    async def _async_apt_update(self, command: str) -> None:
+        update = await self._run(command, use_sudo=True, timeout=COMMAND_TIMEOUT)
         if update.exit_status != 0:
             raise ServerCommandError(
                 f"apt-get update fehlgeschlagen: {str(update.stderr).strip()}"
             )
 
-        upgrade = await self._run(
+    async def _async_dist_upgrade(self) -> asyncssh.SSHCompletedProcess:
+        return await self._run(
             "DEBIAN_FRONTEND=noninteractive apt-get -y "
             '-o Dpkg::Options::="--force-confold" dist-upgrade',
             use_sudo=True,
             timeout=UPDATE_TIMEOUT,
         )
-        if upgrade.exit_status != 0:
-            raise ServerCommandError(
-                f"apt-get dist-upgrade fehlgeschlagen: {str(upgrade.stderr).strip()}"
-            )
 
     async def async_list_docker_containers(self) -> list[DockerContainerInfo]:
         """List running Docker containers and each one's image provenance.
@@ -453,6 +486,11 @@ def _parse_upgradable(output: str) -> list[UpgradablePackage]:
         else:
             packages.append(UpgradablePackage(name=line.split("/", 1)[0].strip()))
     return packages
+
+
+def _is_fetch_failure(stderr: str) -> bool:
+    """Return True if apt failed because package files couldn't be downloaded."""
+    return "Unable to fetch some archives" in stderr or "Failed to fetch" in stderr
 
 
 def _parse_os_release(output: str) -> dict[str, str]:

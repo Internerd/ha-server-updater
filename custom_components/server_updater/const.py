@@ -26,6 +26,9 @@ CONNECT_TIMEOUT = 15
 COMMAND_TIMEOUT = 60
 UPDATE_TIMEOUT = 1800
 REBOOT_TIMEOUT = 20
+# Wait before retrying a dist-upgrade whose package downloads failed, giving
+# a mirror that is mid-sync a moment to catch up.
+APT_FETCH_RETRY_DELAY = 30
 REGISTRY_TIMEOUT = 15
 
 MAX_PACKAGE_ATTRIBUTE = 50

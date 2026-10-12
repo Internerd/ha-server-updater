@@ -61,6 +61,9 @@ Einstellungen-Symbol).
 - **Installieren**: führt `apt-get update && apt-get dist-upgrade` aus (ohne
   Neustart, Fortschritt wird angezeigt). Für Update mit anschließendem
   Neustart weiterhin den Button `Aktualisieren und neu starten` verwenden.
+  Schlägt der Download einzelner Pakete fehl (z. B. `404 Not Found`, weil
+  der Mirror gerade synchronisiert), werden die Paketlisten nach 30 s ohne
+  HTTP-Cache neu geladen und das Upgrade einmal wiederholt.
 
 **Neustart erforderlich**: Meldet der Server `/var/run/reboot-required`, legt
 die Integration zusätzlich einen Hinweis unter **Einstellungen → System →
