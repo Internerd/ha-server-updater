@@ -38,9 +38,6 @@
   },
   "entity": {
     "binary_sensor": {
-      "updates_available": {
-        "name": "Updates available"
-      },
       "reboot_required": {
         "name": "Reboot required"
       }
@@ -55,6 +52,17 @@
       "rescan_containers": {
         "name": "Rescan containers"
       }
+    },
+    "update": {
+      "system": {
+        "name": "System packages"
+      }
+    }
+  },
+  "issues": {
+    "reboot_required": {
+      "title": "{name}: reboot required",
+      "description": "The server **{name}** needs to be rebooted for installed updates to take effect.\n\nPackages requiring it: {packages}\n\nReboot e.g. via the server's \"Update and reboot\" button or manually. This notice disappears with the next poll once no reboot is pending anymore."
     }
   }
 }

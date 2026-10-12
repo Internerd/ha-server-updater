@@ -6,6 +6,8 @@ from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 
 from .const import CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL, DOMAIN, PLATFORMS
 from .coordinator import ServerUpdaterCoordinator
@@ -17,6 +19,8 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Server Updater from a config entry."""
+    _async_remove_legacy_entities(hass, entry)
+
     scan_interval_minutes = entry.options.get(CONF_SCAN_INTERVAL_MINUTES)
     update_interval = (
         timedelta(minutes=scan_interval_minutes)
@@ -57,8 +61,28 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
+        data = hass.data[DOMAIN].pop(entry.entry_id, None)
+        if data is not None:
+            ir.async_delete_issue(hass, DOMAIN, data["apt"].reboot_issue_id)
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Clean up a removed server's repair issue."""
+    ir.async_delete_issue(hass, DOMAIN, f"reboot_required_{entry.entry_id}")
+
+
+def _async_remove_legacy_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Drop registry entries of entities that no longer exist.
+
+    binary_sensor.<server>_updates_available was replaced by the system
+    package update entity in 0.4.0.
+    """
+    registry = er.async_get(hass)
+    if entity_id := registry.async_get_entity_id(
+        "binary_sensor", DOMAIN, f"{entry.entry_id}_updates_available"
+    ):
+        registry.async_remove(entity_id)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

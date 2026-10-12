@@ -12,6 +12,7 @@ from homeassistant.const import (
     CONF_USERNAME,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -23,6 +24,7 @@ from .const import (
     DEFAULT_REFRESH_APT_CACHE,
     DEFAULT_USE_SUDO,
     DOMAIN,
+    MAX_REBOOT_PACKAGES_IN_ISSUE,
 )
 from .ssh_client import ServerConnection, ServerUpdaterError, UpdateCheckResult
 
@@ -63,9 +65,39 @@ class ServerUpdaterCoordinator(DataUpdateCoordinator[UpdateCheckResult]):
     async def _async_update_data(self) -> UpdateCheckResult:
         try:
             async with self.build_connection() as conn:
-                return await conn.async_check_updates()
+                result = await conn.async_check_updates()
         except ServerUpdaterError as err:
             raise UpdateFailed(str(err)) from err
+        self._async_update_reboot_issue(result)
+        return result
+
+    @property
+    def reboot_issue_id(self) -> str:
+        return f"reboot_required_{self.entry.entry_id}"
+
+    def _async_update_reboot_issue(self, result: UpdateCheckResult) -> None:
+        """Show a pending reboot under Settings > Repairs, alongside other system notices."""
+        if not result.reboot_required:
+            ir.async_delete_issue(self.hass, DOMAIN, self.reboot_issue_id)
+            return
+
+        packages = result.reboot_required_packages
+        package_text = ", ".join(packages[:MAX_REBOOT_PACKAGES_IN_ISSUE])
+        if len(packages) > MAX_REBOOT_PACKAGES_IN_ISSUE:
+            package_text += f" (+{len(packages) - MAX_REBOOT_PACKAGES_IN_ISSUE})"
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            self.reboot_issue_id,
+            is_fixable=False,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="reboot_required",
+            translation_placeholders={
+                "name": self.entry.title,
+                "packages": package_text or "-",
+            },
+        )
 
     async def async_apply_updates(self, reboot: bool) -> None:
         """Apply updates and optionally reboot, then refresh state."""

@@ -38,9 +38,6 @@
   },
   "entity": {
     "binary_sensor": {
-      "updates_available": {
-        "name": "Updates verfügbar"
-      },
       "reboot_required": {
         "name": "Neustart erforderlich"
       }
@@ -55,6 +52,17 @@
       "rescan_containers": {
         "name": "Container neu inventarisieren"
       }
+    },
+    "update": {
+      "system": {
+        "name": "Systempakete"
+      }
+    }
+  },
+  "issues": {
+    "reboot_required": {
+      "title": "{name}: Neustart erforderlich",
+      "description": "Der Server **{name}** muss neu gestartet werden, damit installierte Updates wirksam werden.\n\nAuslösende Pakete: {packages}\n\nNeustart z. B. über den Button „Aktualisieren und neu starten“ des Servers oder manuell. Der Hinweis verschwindet nach der nächsten Abfrage, sobald kein Neustart mehr nötig ist."
     }
   }
 }

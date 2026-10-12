@@ -1,8 +1,9 @@
-"""Update entities for Docker containers with an auto-detectable image update.
+"""Update entities for a server's system packages and its Docker containers.
 
-Entities are created and removed dynamically as the container coordinator's
-inventory changes (on the initial scan and whenever the "rescan containers"
-button runs) rather than being fixed at platform setup time.
+The system package entity is fixed per server. Container entities are
+created and removed dynamically as the container coordinator's inventory
+changes (on the initial scan and whenever the "rescan containers" button
+runs) rather than being fixed at platform setup time.
 """
 from __future__ import annotations
 
@@ -17,8 +18,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
+from .coordinator import ServerUpdaterCoordinator
 from .docker_coordinator import ContainerCoordinator, ContainerUpdateStatus
-from .ssh_client import ServerUpdaterError
+from .entity import ServerUpdaterEntity
+from .ssh_client import ServerUpdaterError, UpdateCheckResult
+
+# HA truncates release_summary at 255 characters.
+MAX_RELEASE_SUMMARY = 255
 
 ATTR_IMAGE = "image"
 ATTR_COMPOSE_SERVICE = "compose_service"
@@ -31,7 +37,9 @@ def _container_unique_id(entry: ConfigEntry, name: str) -> str:
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up (dynamically maintained) container update entities for a server."""
+    """Set up the system package entity and container update entities for a server."""
+    async_add_entities([SystemUpdateEntity(hass.data[DOMAIN][entry.entry_id]["apt"])])
+
     coordinator: ContainerCoordinator = hass.data[DOMAIN][entry.entry_id]["docker"]
     known_names: set[str] = set()
 
@@ -86,6 +94,94 @@ def _remove_stale(hass: HomeAssistant, entry: ConfigEntry, keep_unique_ids: set[
         }
         if container_ids and not container_ids & keep_unique_ids:
             device_registry.async_remove_device(device.id)
+
+
+class SystemUpdateEntity(ServerUpdaterEntity, UpdateEntity):
+    """Pending apt package upgrades of the server itself.
+
+    apt has no single "version" for a whole system, so the installed version
+    is the OS release (e.g. "12.7" or "Proxmox VE 9.0.10") and the latest
+    version adds the number of pending packages. That way the entity is "on"
+    exactly while upgrades are pending, and skipping it is re-offered as soon
+    as the set of pending packages changes.
+    """
+
+    _attr_translation_key = "system"
+    _attr_supported_features = (
+        UpdateEntityFeature.INSTALL
+        | UpdateEntityFeature.PROGRESS
+        | UpdateEntityFeature.RELEASE_NOTES
+    )
+
+    def __init__(self, coordinator: ServerUpdaterCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_system_update"
+
+    @property
+    def _data(self) -> UpdateCheckResult | None:
+        return self.coordinator.data
+
+    @property
+    def title(self) -> str | None:
+        data = self._data
+        return data.os_name if data else None
+
+    @property
+    def installed_version(self) -> str | None:
+        data = self._data
+        if data is None:
+            return None
+        return data.os_version or "installiert"
+
+    @property
+    def latest_version(self) -> str | None:
+        data = self._data
+        installed = self.installed_version
+        if data is None or installed is None:
+            return None
+        if data.update_count == 0:
+            return installed
+        noun = "Paket" if data.update_count == 1 else "Pakete"
+        return f"{installed} (+{data.update_count} {noun})"
+
+    @property
+    def release_summary(self) -> str | None:
+        data = self._data
+        if data is None or data.update_count == 0:
+            return None
+        summary = ", ".join(pkg.name for pkg in data.packages)
+        if len(summary) > MAX_RELEASE_SUMMARY:
+            summary = summary[: MAX_RELEASE_SUMMARY - 1].rsplit(", ", 1)[0] + " …"
+        return summary
+
+    @property
+    def in_progress(self) -> bool:
+        return self.coordinator.busy
+
+    async def async_release_notes(self) -> str | None:
+        data = self._data
+        if data is None or data.update_count == 0:
+            return None
+        rows = [
+            f"| {pkg.name} | {pkg.current_version or '?'} | {pkg.new_version or '?'} |"
+            for pkg in data.packages
+        ]
+        return "\n".join(
+            [
+                f"**{data.update_count} Paket-Update(s) verfügbar**",
+                "",
+                "| Paket | Installiert | Neu |",
+                "|---|---|---|",
+                *rows,
+            ]
+        )
+
+    async def async_install(self, version: str | None, backup: bool, **kwargs) -> None:
+        """Run apt-get update && dist-upgrade on the server (without reboot)."""
+        try:
+            await self.coordinator.async_apply_updates(reboot=False)
+        except ServerUpdaterError as err:
+            raise HomeAssistantError(str(err)) from err
 
 
 class ContainerUpdateEntity(CoordinatorEntity[ContainerCoordinator], UpdateEntity):

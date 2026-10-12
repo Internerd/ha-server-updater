@@ -6,6 +6,25 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-12
+
+### Hinzugefügt
+
+- `update`-Entität „Systempakete“ pro Server: Ausstehende Paket-Updates
+  erscheinen unter Einstellungen → Updates neben Core, Add-ons und HACS.
+  Installierte Version = OS-Stand (Proxmox VE aus `pveversion`, Debian aus
+  `/etc/debian_version`, sonst `/etc/os-release`), neueste Version = OS-Stand
+  plus Anzahl ausstehender Pakete. Versionshinweise listen alle Pakete mit
+  alter → neuer Version; „Installieren“ führt `apt-get dist-upgrade` aus.
+- Reparatur-Hinweis „Neustart erforderlich“ unter Einstellungen → System →
+  Reparaturen, solange der Server `/var/run/reboot-required` meldet.
+
+### Entfernt
+
+- `binary_sensor.<server>_updates_available` (ersetzt durch die
+  `update`-Entität „Systempakete“). Der verwaiste Registry-Eintrag wird beim
+  Start automatisch entfernt.
+
 ## [0.3.1] - 2026-10-12
 
 ### Behoben
@@ -101,7 +120,8 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 - `button` zum Aktualisieren sowie Aktualisieren + Neustarten
 - HACS-Kompatibilität (`hacs.json`, versioniertes `manifest.json`)
 
-[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Internerd/ha-server-updater/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/Internerd/ha-server-updater/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Internerd/ha-server-updater/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Internerd/ha-server-updater/compare/v0.1.2...v0.2.0

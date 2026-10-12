@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 
 import asyncssh
@@ -35,14 +36,24 @@ class ServerCommandError(ServerUpdaterError):
 
 
 @dataclass
+class UpgradablePackage:
+    """One package with a pending upgrade, as reported by apt."""
+
+    name: str
+    new_version: str | None = None
+    current_version: str | None = None
+
+
+@dataclass
 class UpdateCheckResult:
     """Result of a check for available updates and reboot state."""
 
     update_count: int
-    packages: list[str] = field(default_factory=list)
+    packages: list[UpgradablePackage] = field(default_factory=list)
     reboot_required: bool = False
     reboot_required_packages: list[str] = field(default_factory=list)
     os_name: str | None = None
+    os_version: str | None = None
 
 
 @dataclass
@@ -186,20 +197,39 @@ class ServerConnection:
 
         return os_name
 
-    async def _get_os_name(self) -> str | None:
+    async def _get_os_release(self) -> dict[str, str]:
         result = await self._run("cat /etc/os-release")
         if result.exit_status != 0:
-            return None
-        pretty_name = None
-        for line in str(result.stdout).splitlines():
-            if line.startswith("PRETTY_NAME="):
-                pretty_name = line.split("=", 1)[1].strip().strip('"')
-                break
-        return pretty_name
+            return {}
+        return _parse_os_release(str(result.stdout or ""))
+
+    async def _get_os_name(self) -> str | None:
+        return (await self._get_os_release()).get("PRETTY_NAME")
+
+    async def _get_os_version(self, os_release: dict[str, str]) -> str | None:
+        """Return a human-readable, point-release-precise OS version.
+
+        Proxmox VE reports its own version via pveversion; Debian's point
+        release is only in /etc/debian_version; Ubuntu has it in VERSION.
+        """
+        pve = await self._run("pveversion 2>/dev/null || true")
+        match = re.match(r"pve-manager/([^/\s]+)", str(pve.stdout or "").strip())
+        if match:
+            return f"Proxmox VE {match.group(1)}"
+
+        if os_release.get("ID") == "debian":
+            debian = await self._run("cat /etc/debian_version 2>/dev/null || true")
+            if version := str(debian.stdout or "").strip():
+                return version
+
+        if version := os_release.get("VERSION"):
+            return version.split(" (", 1)[0]
+        return os_release.get("VERSION_ID")
 
     async def async_check_updates(self) -> UpdateCheckResult:
         """Check for available package updates and whether a reboot is required."""
-        os_name = await self._get_os_name()
+        os_release = await self._get_os_release()
+        os_version = await self._get_os_version(os_release)
 
         if self._refresh_apt_cache:
             refresh = await self._run(
@@ -237,7 +267,8 @@ class ServerConnection:
             packages=packages,
             reboot_required=reboot_required,
             reboot_required_packages=reboot_packages,
-            os_name=os_name,
+            os_name=os_release.get("PRETTY_NAME"),
+            os_version=os_version,
         )
 
     async def async_apply_updates(self) -> None:
@@ -393,11 +424,42 @@ class ServerConnection:
             )
 
 
-def _parse_upgradable(output: str) -> list[str]:
-    packages: list[str] = []
+_UPGRADABLE_RE = re.compile(
+    r"^(?P<name>[^/\s]+)/\S+\s+(?P<new>\S+)\s+\S+"
+    r"(?:\s+\[upgradable from: (?P<current>[^\]]+)\])?"
+)
+
+
+def _parse_upgradable(output: str) -> list[UpgradablePackage]:
+    """Parse `apt list --upgradable` output.
+
+    Lines look like:
+    openssl/stable-security 3.0.15-1~deb12u1 amd64 [upgradable from: 3.0.14-1~deb12u2]
+    """
+    packages: list[UpgradablePackage] = []
     for line in output.splitlines():
         line = line.strip()
-        if not line or line.startswith("Listing..."):
+        if not line or line.startswith("Listing...") or "/" not in line:
             continue
-        packages.append(line.split("/", 1)[0].strip())
+        match = _UPGRADABLE_RE.match(line)
+        if match:
+            packages.append(
+                UpgradablePackage(
+                    name=match.group("name"),
+                    new_version=match.group("new"),
+                    current_version=match.group("current"),
+                )
+            )
+        else:
+            packages.append(UpgradablePackage(name=line.split("/", 1)[0].strip()))
     return packages
+
+
+def _parse_os_release(output: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in output.splitlines():
+        if "=" not in line or line.startswith("#"):
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"')
+    return values

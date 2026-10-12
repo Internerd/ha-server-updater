@@ -31,7 +31,7 @@ Es lassen sich beliebig viele Server konfigurieren, jeder als eigener
 
 | Entität | Typ | Beschreibung |
 |---|---|---|
-| `binary_sensor.<server>_updates_available` | binary_sensor | An, wenn Paket-Updates verfügbar sind. Attribute: `update_count`, `packages`, `os_name` |
+| `update.<server>_system_packages` | update | Ausstehende Paket-Updates des Servers – erscheint unter **Einstellungen → Updates** neben Core, Add-ons und HACS (siehe unten) |
 | `binary_sensor.<server>_reboot_required` | binary_sensor | An, wenn der Server einen Neustart benötigt (`/var/run/reboot-required`). Attribut: `reboot_required_packages` |
 | `button.<server>_update` | button | Führt `apt-get update && apt-get dist-upgrade` auf dem Server aus |
 | `button.<server>_update_and_reboot` | button | Wie oben, anschließend Neustart des Servers |
@@ -39,7 +39,39 @@ Es lassen sich beliebig viele Server konfigurieren, jeder als eigener
 | `update.<container>` | update | Pro erkennbarem Docker-Container: zeigt an, ob ein neueres Image verfügbar ist; bei Docker-Compose-Containern zusätzlich ein Installieren-Button (siehe unten) |
 
 Nach einem Tastendruck laufen Update/Reboot im Hintergrund; danach werden die
-Sensoren automatisch aktualisiert.
+Entitäten automatisch aktualisiert.
+
+## Systempakete in der Home-Assistant-Update-Übersicht
+
+Pro Server gibt es eine `update`-Entität „Systempakete“. Dadurch tauchen
+ausstehende Paket-Updates dort auf, wo Home Assistant auch Core-, Add-on-,
+HACS- und Firmware-Updates anzeigt (Einstellungen → Updates, inkl. Zähler am
+Einstellungen-Symbol).
+
+- **Installierte Version**: Stand des Betriebssystems – bei Proxmox VE die
+  Version aus `pveversion` (z. B. `Proxmox VE 9.0.10`), bei Debian die
+  Point-Release aus `/etc/debian_version` (z. B. `12.7`), bei Ubuntu aus
+  `/etc/os-release` (z. B. `24.04.1 LTS`).
+- **Neueste Version**: dieselbe Angabe plus Anzahl ausstehender Pakete, z. B.
+  `12.7 (+5 Pakete)`. Die Entität ist damit genau dann „an“, wenn Updates
+  anstehen. „Überspringen“ gilt für genau diesen Stand – kommen weitere
+  Pakete hinzu, wird das Update wieder angeboten.
+- **Versionshinweise**: Tabelle aller Pakete mit installierter und neuer
+  Version (aus `apt list --upgradable`).
+- **Installieren**: führt `apt-get update && apt-get dist-upgrade` aus (ohne
+  Neustart, Fortschritt wird angezeigt). Für Update mit anschließendem
+  Neustart weiterhin den Button `Aktualisieren und neu starten` verwenden.
+
+**Neustart erforderlich**: Meldet der Server `/var/run/reboot-required`, legt
+die Integration zusätzlich einen Hinweis unter **Einstellungen → System →
+Reparaturen** an (mit den auslösenden Paketen). Er verschwindet bei der
+nächsten Abfrage, sobald kein Neustart mehr nötig ist. Der
+`binary_sensor.<server>_reboot_required` bleibt für Automationen
+erhalten.
+
+> Bis Version 0.3.x gab es stattdessen `binary_sensor.<server>_updates_available`.
+> Er wurde in 0.4.0 entfernt; der Registry-Eintrag wird beim Start
+> automatisch aufgeräumt.
 
 ## Docker-Container-Updates
 
@@ -250,8 +282,8 @@ für alle drei Systeme zum Einsatz.
 
 **Update-/Reboot-Button reagiert nicht sichtbar**
 - Der Vorgang läuft bewusst im Hintergrund (kann bei vielen Updates mehrere
-  Minuten dauern); Fortschritt ist an der `updates_available`-Entität nach
-  Abschluss sichtbar. Details stehen im Home-Assistant-Log
+  Minuten dauern); Fortschritt und Ergebnis sind an der Entität
+  `Systempakete` sichtbar (alternativ dort direkt „Installieren“ nutzen). Details stehen im Home-Assistant-Log
   (Einstellungen → System → Protokolle, Filter `server_updater`)
 - Während ein Update läuft, ist die Entität `unavailable`, um Doppel-Presses
   zu verhindern
