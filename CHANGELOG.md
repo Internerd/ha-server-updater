@@ -26,6 +26,9 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Geändert
 
+- Abhängigkeit `asyncssh` nicht mehr exakt auf 2.23.1 fixiert (`>=2.23.1`),
+  da Home Assistant inzwischen selbst 2.24.0 mitbringt und der exakte Pin
+  damit kollidiert (hassfest-Fehler).
 - `update`-Entitäten zeigen während einer laufenden Installation den
   Fortschrittszustand (`in_progress`) an.
 
