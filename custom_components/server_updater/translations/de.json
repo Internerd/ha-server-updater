@@ -31,7 +31,8 @@
         "title": "Server Updater Optionen",
         "data": {
           "scan_interval_minutes": "Abfrageintervall (Minuten)",
-          "refresh_apt_cache": "Paketliste vor jeder Prüfung aktualisieren (apt-get update)"
+          "refresh_apt_cache": "Paketliste vor jeder Prüfung aktualisieren (apt-get update)",
+          "notify_on_failure": "Bei Fehlern eine Benachrichtigung in Home Assistant anzeigen"
         }
       }
     }
@@ -40,6 +41,12 @@
     "binary_sensor": {
       "reboot_required": {
         "name": "Neustart erforderlich"
+      },
+      "reachable": {
+        "name": "Erreichbar"
+      },
+      "autostart_guests_stopped": {
+        "name": "Autostart-Gäste gestoppt"
       }
     },
     "button": {
@@ -57,11 +64,30 @@
       },
       "restart_container": {
         "name": "Neu starten"
+      },
+      "restart_services": {
+        "name": "Dienste neu starten"
+      },
+      "prune_images": {
+        "name": "Ungenutzte Images aufräumen"
       }
     },
     "update": {
       "system": {
         "name": "Systempakete"
+      }
+    },
+    "sensor": {
+      "last_boot": {
+        "name": "Letzter Start"
+      },
+      "services_to_restart": {
+        "name": "Neu zu startende Dienste"
+      }
+    },
+    "switch": {
+      "container_running": {
+        "name": "Läuft"
       }
     }
   },
@@ -79,6 +105,43 @@
           "not_loaded": "Die Integration für diesen Server ist nicht geladen.",
           "reboot_failed": "Neustart fehlgeschlagen: {error}"
         }
+      }
+    }
+  },
+  "services": {
+    "run_maintenance": {
+      "name": "Wartung ausführen",
+      "description": "Spielt Paket-Updates ein und startet die Server je nach Einstellung neu; optional werden auch Compose-Container aktualisiert, ungenutzte Images aufgeräumt und veraltete Dienste neu gestartet. Server werden nacheinander abgearbeitet.",
+      "fields": {
+        "servers": {
+          "name": "Server",
+          "description": "Zu wartende Server. Leer = alle Server."
+        },
+        "reboot": {
+          "name": "Neustart",
+          "description": "Wann der Server danach neu gestartet wird."
+        },
+        "update_containers": {
+          "name": "Container aktualisieren",
+          "description": "Docker-Compose-Container mit verfügbarem Image-Update aktualisieren."
+        },
+        "restart_services": {
+          "name": "Dienste neu starten",
+          "description": "Dienste mit veralteten Bibliotheken (needrestart) neu starten, falls kein Neustart des Servers folgt."
+        },
+        "prune_images": {
+          "name": "Images aufräumen",
+          "description": "Ungenutzte (dangling) Docker-Images entfernen."
+        }
+      }
+    }
+  },
+  "selector": {
+    "reboot_mode": {
+      "options": {
+        "never": "Nie",
+        "if_required": "Nur wenn erforderlich",
+        "always": "Immer"
       }
     }
   }

@@ -11,18 +11,16 @@ from homeassistant.components.update import UpdateEntity, UpdateEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import ServerUpdaterCoordinator
-from .docker_coordinator import ContainerCoordinator, ContainerUpdateStatus
+from .docker_coordinator import ContainerCoordinator
 from .entity import (
+    ContainerEntity,
     ServerUpdaterEntity,
-    async_remove_stale_containers,
+    async_track_container_entities,
     container_device_id,
-    container_device_info,
 )
 from .ssh_client import ServerUpdaterError, UpdateCheckResult
 
@@ -40,37 +38,16 @@ async def async_setup_entry(
     async_add_entities([SystemUpdateEntity(hass.data[DOMAIN][entry.entry_id]["apt"])])
 
     coordinator: ContainerCoordinator = hass.data[DOMAIN][entry.entry_id]["docker"]
-    known_names: set[str] = set()
-
-    def _sync_entities() -> None:
-        tracked = coordinator.tracked_names
-        # Remove stale entities/devices first, so that replacements don't get
-        # an entity_id suffix (_2, _3, ...) while the old one is still
-        # registered.
-        async_remove_stale_containers(
-            hass,
-            entry,
-            "update",
-            {container_device_id(entry, n) for n in tracked},
-            {container_device_id(entry, n) for n in coordinator.containers},
-        )
-        known_names.intersection_update(tracked)
-
-        new_entities = [
-            ContainerUpdateEntity(coordinator, entry, name)
-            for name in tracked
-            if name not in known_names
-        ]
-        known_names.update(tracked)
-        if new_entities:
-            async_add_entities(new_entities)
-
-    coordinator.async_add_inventory_listener(_sync_entities)
-
-    # Without a successful scan there is no reliable inventory to compare
-    # against, so leave the registry alone until the next (manual) rescan.
-    if coordinator.inventory_loaded:
-        _sync_entities()
+    async_track_container_entities(
+        hass,
+        entry,
+        coordinator,
+        "update",
+        lambda: coordinator.tracked_names,
+        lambda name: container_device_id(entry, name),
+        lambda name: ContainerUpdateEntity(coordinator, entry, name),
+        async_add_entities,
+    )
 
 
 class SystemUpdateEntity(ServerUpdaterEntity, UpdateEntity):
@@ -161,35 +138,21 @@ class SystemUpdateEntity(ServerUpdaterEntity, UpdateEntity):
             raise HomeAssistantError(str(err)) from err
 
 
-class ContainerUpdateEntity(CoordinatorEntity[ContainerCoordinator], UpdateEntity):
+class ContainerUpdateEntity(ContainerEntity, UpdateEntity):
     """Represents one Docker container's image update status."""
 
-    _attr_has_entity_name = True
     _attr_name = None
 
     def __init__(
         self, coordinator: ContainerCoordinator, entry: ConfigEntry, name: str
     ) -> None:
-        super().__init__(coordinator)
-        self._entry = entry
-        self._container_name = name
+        super().__init__(coordinator, entry, name)
         self._attr_unique_id = container_device_id(entry, name)
-
-    @property
-    def _status(self) -> ContainerUpdateStatus | None:
-        return self.coordinator.containers.get(self._container_name)
 
     @property
     def available(self) -> bool:
         status = self._status
         return super().available and status is not None and status.checkable
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        status = self._status
-        return container_device_info(
-            self._entry, self._container_name, status.container.image_ref if status else None
-        )
 
     @property
     def title(self) -> str | None:

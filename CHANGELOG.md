@@ -6,6 +6,49 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-30
+
+### Hinzugefügt
+
+- **Neustart-Überwachung**: Nach jedem Neustart-Befehl wird nach ca. drei
+  Minuten und danach minütlich (bis 15 Minuten) geprüft, ob der Server
+  erreichbar ist, einen neuen Startzeitpunkt hat und – auf Proxmox VE – alle
+  Autostart-Gäste laufen. Andernfalls gibt es eine Fehlermeldung mit Grund.
+- `binary_sensor.<server>_reachable` (Konnektivität, bleibt auch bei
+  ausgefallenem Server verfügbar) und `sensor.<server>_last_boot`
+  (letzter Start).
+- **Proxmox VE**: `binary_sensor.<server>_autostart_guests_stopped` meldet
+  Gäste mit „Beim Booten starten“, die nicht laufen (per `pvesh`). Das
+  geordnete Herunterfahren der Gäste beim Neustart übernimmt weiterhin
+  Proxmox VE selbst (`pve-guests`).
+- **needrestart**: `sensor.<server>_services_to_restart` und Button
+  `Dienste neu starten` für Dienste mit veralteten Bibliotheken – ohne
+  Neustart des Servers. Kritische Dienste (dbus, systemd-*, getty, docker,
+  containerd, pve-guests, lxc, qemu-server, pve-ha-*) werden dabei
+  ausgelassen.
+- **Docker**: Schalter `Läuft` pro Container (`docker start`/`stop`, mit
+  Attributen `state`/`status`) und Server-Button `Ungenutzte Images
+  aufräumen` (`docker image prune -f`). Gestoppte Container mit
+  Neustart-Richtlinie (oder aus Home Assistant gestoppte) bleiben jetzt im
+  Inventar.
+- **Wartungsaktion** `server_updater.run_maintenance` für zeitgesteuerte
+  Automationen: Paket-Updates, optional Container-Updates, Images aufräumen,
+  Dienste neu starten, Neustart nie/bei Bedarf/immer – für alle oder
+  ausgewählte Server, mit optionaler Zusammenfassung als Antwort.
+- **Ereignisse & Benachrichtigungen**: Jede Aktion feuert
+  `server_updater_event` mit Ergebnis; Fehler erzeugen zusätzlich eine
+  Benachrichtigung in Home Assistant, die bei späterem Erfolg wieder
+  verschwindet (in den Optionen abschaltbar).
+- Automatisierte Tests (`tests/`) mit simuliertem Server, laufen in der CI.
+
+### Geändert
+
+- Der Container-Laufzustand wird bei jeder regulären Abfrage mit einem
+  `docker ps -a` per SSH gelesen (bisher nur Registry-Abfragen).
+- Update-Fehler über die Buttons werden nicht mehr nur geloggt, sondern auch
+  gemeldet (Ereignis/Benachrichtigung). Ein zweiter Update-Vorgang während
+  eines laufenden wird mit Fehlermeldung abgelehnt statt still ignoriert.
+
 ## [0.5.0] - 2026-10-30
 
 ### Hinzugefügt
@@ -158,7 +201,8 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 - `button` zum Aktualisieren sowie Aktualisieren + Neustarten
 - HACS-Kompatibilität (`hacs.json`, versioniertes `manifest.json`)
 
-[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Internerd/ha-server-updater/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Internerd/ha-server-updater/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/Internerd/ha-server-updater/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Internerd/ha-server-updater/compare/v0.3.1...v0.4.0

@@ -15,6 +15,10 @@ Es lassen sich beliebig viele Server konfigurieren, jeder als eigener
 ## Inhalt
 
 - [Bereitgestellte Entitäten](#bereitgestellte-entitäten-pro-server)
+- [Neustart-Überwachung, Ereignisse & Benachrichtigungen](#neustart-überwachung-ereignisse--benachrichtigungen)
+- [Dienste neu starten (needrestart)](#dienste-neu-starten-needrestart)
+- [Proxmox VE: Gäste mit Autostart](#proxmox-ve-gäste-mit-autostart)
+- [Wartungsaktion für Automationen](#wartungsaktion-für-automationen)
 - [Docker-Container-Updates](#docker-container-updates)
 - [Installation](#installation)
 - [Einrichtung](#einrichtung)
@@ -36,8 +40,15 @@ Es lassen sich beliebig viele Server konfigurieren, jeder als eigener
 | `button.<server>_update` | button | Führt `apt-get update && apt-get dist-upgrade` auf dem Server aus |
 | `button.<server>_update_and_reboot` | button | Wie oben, anschließend Neustart des Servers |
 | `button.<server>_reboot` | button | Startet den Server neu, **ohne** vorher Updates einzuspielen |
-| `button.<server>_rescan_containers` | button | Durchsucht den Server erneut nach laufenden Docker-Containern (siehe unten) |
-| `button.<container>_restart` | button | Pro laufendem Docker-Container: startet den Container neu (`docker restart`) |
+| `binary_sensor.<server>_reachable` | binary_sensor | Ob die letzte Abfrage den Server per SSH erreicht hat. Bleibt auch bei ausgefallenem Server verfügbar (dann „aus“). Attribut: `rebooting` |
+| `sensor.<server>_last_boot` | sensor | Zeitpunkt des letzten Starts (aus `/proc/stat`) |
+| `sensor.<server>_services_to_restart` | sensor | Nur mit `needrestart`: Anzahl Dienste mit veralteten Bibliotheken. Attribute: `services`, `excluded_services` |
+| `button.<server>_restart_services` | button | Nur mit `needrestart`: startet diese Dienste neu (siehe unten) |
+| `binary_sensor.<server>_autostart_guests_stopped` | binary_sensor | Nur Proxmox VE: an, solange Gäste mit „Beim Booten starten“ nicht laufen. Attribut: `guests` |
+| `button.<server>_rescan_containers` | button | Durchsucht den Server erneut nach Docker-Containern (siehe unten) |
+| `button.<server>_prune_unused_images` | button | Entfernt ungenutzte (dangling) Docker-Images (`docker image prune -f`) |
+| `button.<container>_restart` | button | Pro Docker-Container: startet den Container neu (`docker restart`) |
+| `switch.<container>_running` | switch | Pro Docker-Container: an, solange er läuft; Schalten führt `docker start`/`docker stop` aus. Attribute: `state`, `status` |
 | `update.<container>` | update | Pro erkennbarem Docker-Container: zeigt an, ob ein neueres Image verfügbar ist; bei Docker-Compose-Containern zusätzlich ein Installieren-Button (siehe unten) |
 
 Nach einem Tastendruck laufen Update/Reboot im Hintergrund; danach werden die
@@ -95,6 +106,149 @@ neu starten`. Nach jedem Neustart (egal über welchen Weg) wird der Server
 nach ca. drei Minuten automatisch erneut abgefragt, damit Sensoren und der
 Reparatur-Hinweis den neuen Stand zeigen.
 
+## Neustart-Überwachung, Ereignisse & Benachrichtigungen
+
+**Neustart-Überwachung**: Nach jedem Neustart-Befehl (Button, „Aktualisieren
+und neu starten“, Reparatur-Hinweis, Wartungsaktion) prüft die Integration
+nach ca. drei Minuten und danach minütlich, bis zu 15 Minuten lang, ob der
+Server zurück ist. Als erfolgreich gilt der Neustart erst, wenn
+
+1. der Server per SSH erreichbar ist,
+2. sein Startzeitpunkt neuer ist als vor dem Neustart (sonst wurde der
+   Befehl z. B. von einem Inhibitor blockiert) und
+3. auf Proxmox VE alle Gäste mit Autostart laufen (siehe unten).
+
+Klappt das nicht innerhalb der 15 Minuten, gibt es ein Fehler-Ereignis und
+eine Benachrichtigung mit dem konkreten Grund. Währenddessen hat
+`binary_sensor.<server>_reachable` das Attribut `rebooting: true`.
+
+Läuft Home Assistant selbst auf dem neu gestarteten Proxmox-Host, endet die
+Überwachung mit dem Neustart von Home Assistant; die Entitäten aktualisieren
+sich danach beim Laden der Integration.
+
+**Ereignisse**: Jede Aktion feuert ein Home-Assistant-Ereignis
+`server_updater_event`, z. B.:
+
+```yaml
+entry_id: 01J...
+server: pve1
+action: reboot        # update, reboot, services_restart, container_update,
+                      # container_restart, container_stop, container_start,
+                      # image_prune
+success: false
+error: "Gäste mit Autostart laufen nicht: VM 101 (dns)"
+container: null       # bei Container-Aktionen der Containername
+```
+
+Je nach Aktion kommen weitere Felder hinzu (`packages`, `services`,
+`excluded_services`, `reclaimed`). Beispiel-Automation für eine Push-Nachricht
+bei Fehlern:
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: server_updater_event
+    event_data:
+      success: false
+actions:
+  - action: notify.mobile_app_mein_handy
+    data:
+      title: "{{ trigger.event.data.server }}: {{ trigger.event.data.action }} fehlgeschlagen"
+      message: "{{ trigger.event.data.error }}"
+```
+
+**Benachrichtigungen**: Schlägt eine Aktion fehl, erscheint zusätzlich eine
+Benachrichtigung in Home Assistant (Glocke in der Seitenleiste). Gelingt
+dieselbe Aktion später, verschwindet sie automatisch. Abschaltbar in den
+Optionen des Servers („Bei Fehlern eine Benachrichtigung … anzeigen“); das
+Ereignis wird trotzdem gefeuert.
+
+## Dienste neu starten (needrestart)
+
+Nach Bibliotheks-Updates (z. B. OpenSSL, libc) laufen Dienste oft noch mit
+der alten Version im Speicher. Ein kompletter Neustart des Servers ist dafür
+nicht nötig; es reicht, die betroffenen Dienste neu zu starten. Ist auf dem
+Server [`needrestart`](https://github.com/liske/needrestart) installiert
+(`apt install needrestart`, danach die Integration neu laden), ermittelt die
+Integration bei jeder Abfrage per `needrestart -b` die betroffenen Dienste
+und bietet dafür Sensor und Button an.
+
+Der Button startet die Dienste per `systemctl restart` neu, **außer** solche,
+deren Neustart Sitzungen beendet oder Gäste/Container betrifft: `dbus`,
+`systemd-*`, `user@*`, `getty@*`, Display-Manager, `docker`/`containerd`
+(würde alle Container stoppen), `pve-guests`, `lxc*`, `qemu-server`,
+`pve-ha-*`. Diese stehen im Attribut `excluded_services` und erledigen sich
+mit dem nächsten Neustart des Servers.
+
+## Proxmox VE: Gäste mit Autostart
+
+**Sauberes Herunterfahren**: Proxmox VE fährt bei einem Neustart des Hosts
+alle Gäste selbst geordnet herunter (Dienst `pve-guests`, in umgekehrter
+Start-Reihenfolge und mit den pro Gast eingestellten Shutdown-Timeouts unter
+*Optionen → Start/Shutdown-Reihenfolge*). Die Integration nutzt dafür den
+normalen `reboot` und greift nicht zusätzlich ein; wer längere Timeouts
+braucht, stellt sie dort am Gast ein.
+
+**Prüfung nach dem Start**: Auf Proxmox-VE-Hosts liest die Integration bei
+jeder Abfrage per `pvesh` alle VMs und Container und meldet über
+`binary_sensor.<server>_autostart_guests_stopped`, welche Gäste mit „Beim
+Booten starten“ (`onboot: 1`) nicht laufen (Vorlagen ausgenommen). Die
+Konfiguration wird nur für gestoppte Gäste abgefragt, damit die Abfrage auch
+mit vielen Gästen schnell bleibt. Nach einem Neustart ist dieser Sensor Teil
+der Neustart-Überwachung (siehe oben) – Gäste mit Startverzögerung haben
+dafür bis zu 15 Minuten Zeit.
+
+Benötigt `pvesh` mit Root-Rechten (siehe [Sudo-Konfiguration](#sudo-konfiguration)).
+
+## Wartungsaktion für Automationen
+
+Die Aktion `server_updater.run_maintenance` führt eine komplette Wartung
+durch, gedacht für eine zeitgesteuerte Automation („sonntags 3 Uhr“). Pro
+Server, nacheinander:
+
+1. aktuellen Stand abfragen und Paket-Updates einspielen (falls vorhanden),
+2. optional Compose-Container mit verfügbarem Image-Update aktualisieren
+   (`update_containers`),
+3. optional ungenutzte Docker-Images entfernen (`prune_images`),
+4. erneut abfragen und abhängig von `reboot` neu starten: `never`,
+   `if_required` (Standard: nur bei Neustart-Bedarf) oder `always`,
+5. falls kein Neustart folgt: optional veraltete Dienste neu starten
+   (`restart_services`, siehe needrestart).
+
+Ohne `servers` werden alle Server gewartet. Ein Fehler auf einem Server hält
+die anderen nicht auf; am Ende wirft die Aktion einen Fehler mit allen
+fehlgeschlagenen Servern – oder liefert, mit `response_variable`, eine
+Zusammenfassung pro Server:
+
+```yaml
+triggers:
+  - trigger: time
+    at: "03:00:00"
+conditions:
+  - condition: time
+    weekday: sun
+actions:
+  - action: server_updater.run_maintenance
+    data:
+      reboot: if_required
+      update_containers: true
+      restart_services: true
+      prune_images: true
+    response_variable: wartung
+  - action: notify.mobile_app_mein_handy
+    data:
+      message: >
+        {% for s in wartung.servers %}{{ s.server }}: {{ s.packages_updated }} Pakete,
+        {{ s.containers_updated | count }} Container,
+        {{ 'neu gestartet' if s.rebooted else 'kein Neustart' }}
+        {{ ('FEHLER: ' ~ s.error) if s.error else '' }}
+        {% endfor %}
+```
+
+Felder der Zusammenfassung: `server`, `packages_updated`,
+`containers_updated`, `images_pruned`, `services_restarted`,
+`reboot_required`, `rebooted`, `error`.
+
 > Bis Version 0.3.x gab es stattdessen `binary_sensor.<server>_updates_available`.
 > Er wurde in 0.4.0 entfernt; der Registry-Eintrag wird beim Start
 > automatisch aufgeräumt.
@@ -109,8 +263,12 @@ GitHub-Actions-Workflows (GHCR).
 **Wie die Erkennung funktioniert:**
 
 1. Beim ersten Laden der Integration (und über den Button
-   `Container neu inventarisieren`) wird per SSH `docker ps`/`docker inspect`
-   ausgeführt, um laufende Container und deren Image-Referenz zu ermitteln.
+   `Container neu inventarisieren`) wird per SSH `docker ps -a`/`docker inspect`
+   ausgeführt, um Container und deren Image-Referenz zu ermitteln.
+   Erfasst werden laufende Container sowie gestoppte, die laufen sollen
+   (Neustart-Richtlinie `always`, `unless-stopped` oder `on-failure`) oder
+   schon bekannt waren – ein aus Home Assistant gestoppter Container bleibt
+   so steuerbar, alte beendete Einweg-Container bekommen aber kein Gerät.
    Dieser Scan läuft **nicht** bei jeder regulären Abfrage, sondern nur beim
    Start bzw. auf Knopfdruck – damit neu deployte Container erkannt werden,
    ohne dass jedes Mal der ganze Server durchsucht wird.
@@ -138,11 +296,24 @@ Entitäten/Geräte älterer Versionen (≤ 0.3.0, die noch an die Container-ID
 gebunden waren und dadurch Duplikate wie `update.<name>_2` erzeugt haben)
 werden beim ersten erfolgreichen Scan nach dem Update automatisch entfernt.
 
-**Container neu starten**: Jeder beim Scan gefundene laufende Container
-bekommt ein eigenes Gerät mit dem Button `Neu starten`, der
-`docker restart <name>` ausführt – auch für Container, für die es keine
-`update`-Entität gibt (z. B. lokal gebaute Images). Der Container behält
-dabei ID und Konfiguration; ein Neu-Inventarisieren ist nicht nötig.
+**Container steuern**: Jeder erfasste Container bekommt ein eigenes Gerät –
+auch solche ohne `update`-Entität (z. B. lokal gebaute Images) – mit
+
+- Button `Neu starten` (`docker restart <name>`; der Container behält ID und
+  Konfiguration, ein Neu-Inventarisieren ist nicht nötig) und
+- Schalter `Läuft` (`docker start`/`docker stop`). Attribute `state`
+  (z. B. `running`, `exited`) und `status` (z. B. `Up 3 hours`).
+
+Der Laufzustand wird bei jeder regulären Abfrage mit einem einzigen
+`docker ps -a` per SSH gelesen (und sofort nach jeder eigenen Aktion). Ist der
+Server dabei nicht erreichbar, wird der Schalter `unavailable`, die
+`update`-Entitäten (Registry-Abfrage) bleiben davon unberührt.
+
+**Images aufräumen**: Der Server-Button `Ungenutzte Images aufräumen`
+führt `docker image prune -f` aus und entfernt damit Images ohne Tag, wie
+sie nach Updates zurückbleiben. Getaggte, gerade nicht genutzte Images bleiben
+erhalten. Der freigegebene Speicher steht im Log und im Ereignis
+(`reclaimed`).
 
 Jede `update`-Entität zeigt die (verkürzten) Digests als installierte/neueste
 Version und – sofern das Image das OCI-Label
@@ -265,10 +436,17 @@ sudoers-Eintrag anlegen, z. B. via `visudo -f /etc/sudoers.d/ha-server-updater`:
 ha_updater ALL=(root) NOPASSWD: /usr/bin/apt-get, /usr/sbin/reboot
 ```
 
-Für die Docker-Funktionen (Inventarisierung, Installieren, Container neu
-starten) zusätzlich `/usr/bin/docker` ergänzen – oder den Benutzer in die
-Gruppe `docker` aufnehmen und Sudo für ihn deaktivieren, falls er nur
-Docker-Hosts verwaltet.
+Je nach genutzten Funktionen zusätzlich:
+
+| Funktion | Befehl |
+|---|---|
+| Docker (Inventar, Installieren, Neustart/Start/Stop, Images aufräumen) | `/usr/bin/docker` |
+| Dienste mit veralteten Bibliotheken | `/usr/sbin/needrestart`, `/usr/bin/systemctl restart *` |
+| Proxmox VE: Autostart-Gäste prüfen | `/usr/bin/pvesh` |
+
+`docker` lässt sich alternativ über die Gruppe `docker` freigeben. Fehlt ein
+Recht, bleibt die jeweilige Funktion leer bzw. meldet einen Fehler; der Rest
+funktioniert weiter.
 
 `ha_updater` durch den in Home Assistant konfigurierten Benutzernamen
 ersetzen. So bekommt der SSH-Nutzer ausschließlich für `apt-get` und `reboot`
@@ -301,6 +479,20 @@ für alle drei Systeme zum Einsatz.
 
 ## Troubleshooting
 
+**Sensor „Neu zu startende Dienste“ / Button „Dienste neu starten“ fehlt**
+- Erscheint nur, wenn `/usr/sbin/needrestart` beim Laden der Integration
+  vorhanden war: `apt install needrestart`, dann Integration neu laden
+
+**„Autostart-Gäste gestoppt“ ist `unknown`**
+- `pvesh` konnte nicht gelesen werden – meist fehlt das Sudo-Recht für
+  `/usr/bin/pvesh` (siehe Sudo-Konfiguration)
+
+**Neustart wird als fehlgeschlagen gemeldet, obwohl der Server läuft**
+- Grund steht in der Benachrichtigung bzw. im Ereignis: „nicht erreichbar“
+  (Server braucht länger als 15 Minuten), „Startzeitpunkt unverändert“ (der
+  `reboot`-Befehl wurde nicht ausgeführt, z. B. fehlendes Sudo-Recht oder
+  ein systemd-Inhibitor) oder eine Liste nicht gestarteter Gäste
+
 **"Verbindung fehlgeschlagen" im Config Flow**
 - Host/Port/Firewall prüfen (`ssh <user>@<host> -p <port>` manuell testen)
 - Bei Schlüssel-Auth: Inhalt der *privaten* Schlüsseldatei einfügen (nicht
@@ -327,8 +519,8 @@ für alle drei Systeme zum Einsatz.
 
 **Entitäten bleiben nach einem Neustart `unavailable`**
 - Die Integration fragt den Server ca. drei Minuten nach dem Neustart-Befehl
-  erneut ab. Braucht der Server länger zum Hochfahren (z. B. viele VMs mit
-  Startverzögerung), aktualisieren sich die Sensoren beim nächsten regulären
+  und danach minütlich bis zu 15 Minuten lang erneut ab. Braucht der Server
+  noch länger, aktualisieren sich die Sensoren beim nächsten regulären
   Poll-Intervall oder nach manuellem "Neu laden" der Integration
 
 **Reparatur-Hinweis „Neustart erforderlich“ verschwindet auf Proxmox VE nicht**

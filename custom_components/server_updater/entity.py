@@ -1,15 +1,20 @@
 """Base entity and shared container helpers for the Server Updater integration."""
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import ServerUpdaterCoordinator
+from .docker_coordinator import ContainerCoordinator, ContainerUpdateStatus
 
 
 class ServerUpdaterEntity(CoordinatorEntity[ServerUpdaterCoordinator]):
@@ -77,3 +82,66 @@ def async_remove_stale_containers(
         }
         if container_ids and not container_ids & keep_device_ids:
             device_registry.async_remove_device(device.id)
+
+
+def async_track_container_entities(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    coordinator: ContainerCoordinator,
+    domain: str,
+    names: Callable[[], Iterable[str]],
+    unique_id: Callable[[str], str],
+    factory: Callable[[str], Entity],
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Add/remove one entity per container as the inventory changes.
+
+    `names` selects the containers that get an entity of this platform.
+    Stale entities and devices are removed before new ones are added, so
+    replacements don't get an entity_id suffix (_2, _3, ...) while the old
+    one is still registered.
+    """
+    known: set[str] = set()
+
+    def _sync() -> None:
+        wanted = set(names())
+        async_remove_stale_containers(
+            hass,
+            entry,
+            domain,
+            {unique_id(name) for name in wanted},
+            {container_device_id(entry, name) for name in coordinator.containers},
+        )
+        known.intersection_update(wanted)
+        new_entities = [factory(name) for name in sorted(wanted - known)]
+        known.update(wanted)
+        if new_entities:
+            async_add_entities(new_entities)
+
+    coordinator.async_add_inventory_listener(_sync)
+    # Without a successful scan there is no reliable inventory to compare
+    # against, so leave the registry alone until the next (manual) rescan.
+    if coordinator.inventory_loaded:
+        _sync()
+
+
+class ContainerEntity(CoordinatorEntity[ContainerCoordinator]):
+    """Base for per-container entities, sharing one device per container."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: ContainerCoordinator, entry: ConfigEntry, name: str) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._container_name = name
+
+    @property
+    def _status(self) -> ContainerUpdateStatus | None:
+        return self.coordinator.containers.get(self._container_name)
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        status = self._status
+        return container_device_info(
+            self._entry, self._container_name, status.container.image_ref if status else None
+        )

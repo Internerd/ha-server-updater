@@ -1,14 +1,20 @@
 """Binary sensors for the Server Updater integration."""
 from __future__ import annotations
 
-from homeassistant.components.binary_sensor import BinarySensorEntity
+from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
+    BinarySensorEntity,
+)
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    ATTR_GUESTS,
     ATTR_NEWEST_KERNEL,
     ATTR_REBOOT_PACKAGES,
+    ATTR_REBOOTING,
     ATTR_RUNNING_KERNEL,
     DOMAIN,
     MAX_PACKAGE_ATTRIBUTE,
@@ -26,7 +32,13 @@ async def async_setup_entry(
     so they show up under Settings > Updates.
     """
     coordinator: ServerUpdaterCoordinator = hass.data[DOMAIN][entry.entry_id]["apt"]
-    async_add_entities([RebootRequiredBinarySensor(coordinator)])
+    entities: list[BinarySensorEntity] = [
+        RebootRequiredBinarySensor(coordinator),
+        ReachableBinarySensor(coordinator),
+    ]
+    if coordinator.data and coordinator.data.is_proxmox:
+        entities.append(AutostartGuestsStoppedBinarySensor(coordinator))
+    async_add_entities(entities)
 
 
 class RebootRequiredBinarySensor(ServerUpdaterEntity, BinarySensorEntity):
@@ -59,3 +71,56 @@ class RebootRequiredBinarySensor(ServerUpdaterEntity, BinarySensorEntity):
             ATTR_RUNNING_KERNEL: data.running_kernel,
             ATTR_NEWEST_KERNEL: data.newest_kernel,
         }
+
+
+class ReachableBinarySensor(ServerUpdaterEntity, BinarySensorEntity):
+    """Whether the last check reached the server over SSH.
+
+    Stays available while the server is down (unlike the other entities),
+    so automations can react to it going off, e.g. after a reboot.
+    """
+
+    _attr_translation_key = "reachable"
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: ServerUpdaterCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_reachable"
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.last_update_success
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {ATTR_REBOOTING: self.coordinator.rebooting}
+
+
+class AutostartGuestsStoppedBinarySensor(ServerUpdaterEntity, BinarySensorEntity):
+    """Proxmox VE: on while guests with "start at boot" aren't running."""
+
+    _attr_translation_key = "autostart_guests_stopped"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, coordinator: ServerUpdaterCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_autostart_guests_stopped"
+
+    @property
+    def is_on(self) -> bool | None:
+        data = self.coordinator.data
+        if data is None or data.autostart_guests_stopped is None:
+            return None
+        return bool(data.autostart_guests_stopped)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        data = self.coordinator.data
+        if data is None or data.autostart_guests_stopped is None:
+            return {}
+        return {ATTR_GUESTS: [str(guest) for guest in data.autostart_guests_stopped]}

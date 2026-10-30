@@ -1,0 +1,29 @@
+run_maintenance:
+  fields:
+    servers:
+      selector:
+        device:
+          multiple: true
+          filter:
+            integration: server_updater
+    reboot:
+      default: if_required
+      selector:
+        select:
+          translation_key: reboot_mode
+          options:
+            - never
+            - if_required
+            - always
+    update_containers:
+      default: false
+      selector:
+        boolean:
+    restart_services:
+      default: false
+      selector:
+        boolean:
+    prune_images:
+      default: false
+      selector:
+        boolean:

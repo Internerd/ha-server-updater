@@ -31,7 +31,8 @@
         "title": "Server Updater options",
         "data": {
           "scan_interval_minutes": "Polling interval (minutes)",
-          "refresh_apt_cache": "Refresh package list before each check (apt-get update)"
+          "refresh_apt_cache": "Refresh package list before each check (apt-get update)",
+          "notify_on_failure": "Show a Home Assistant notification on failures"
         }
       }
     }
@@ -40,6 +41,12 @@
     "binary_sensor": {
       "reboot_required": {
         "name": "Reboot required"
+      },
+      "reachable": {
+        "name": "Reachable"
+      },
+      "autostart_guests_stopped": {
+        "name": "Autostart guests stopped"
       }
     },
     "button": {
@@ -57,11 +64,30 @@
       },
       "restart_container": {
         "name": "Restart"
+      },
+      "restart_services": {
+        "name": "Restart services"
+      },
+      "prune_images": {
+        "name": "Prune unused images"
       }
     },
     "update": {
       "system": {
         "name": "System packages"
+      }
+    },
+    "sensor": {
+      "last_boot": {
+        "name": "Last boot"
+      },
+      "services_to_restart": {
+        "name": "Services to restart"
+      }
+    },
+    "switch": {
+      "container_running": {
+        "name": "Running"
       }
     }
   },
@@ -79,6 +105,43 @@
           "not_loaded": "The integration for this server is not loaded.",
           "reboot_failed": "Reboot failed: {error}"
         }
+      }
+    }
+  },
+  "services": {
+    "run_maintenance": {
+      "name": "Run maintenance",
+      "description": "Installs package updates and reboots the servers depending on the setting; optionally also updates Compose containers, prunes unused images and restarts outdated services. Servers are processed one after another.",
+      "fields": {
+        "servers": {
+          "name": "Servers",
+          "description": "Servers to maintain. Empty = all servers."
+        },
+        "reboot": {
+          "name": "Reboot",
+          "description": "When to reboot the server afterwards."
+        },
+        "update_containers": {
+          "name": "Update containers",
+          "description": "Update Docker Compose containers with an available image update."
+        },
+        "restart_services": {
+          "name": "Restart services",
+          "description": "Restart services using outdated libraries (needrestart) if no reboot follows."
+        },
+        "prune_images": {
+          "name": "Prune images",
+          "description": "Remove unused (dangling) Docker images."
+        }
+      }
+    }
+  },
+  "selector": {
+    "reboot_mode": {
+      "options": {
+        "never": "Never",
+        "if_required": "Only if required",
+        "always": "Always"
       }
     }
   }

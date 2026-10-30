@@ -19,7 +19,9 @@ from .const import (
     COMMAND_TIMEOUT,
     CONNECT_TIMEOUT,
     CONTAINER_RESTART_TIMEOUT,
+    NEEDRESTART_TIMEOUT,
     REBOOT_TIMEOUT,
+    SERVICE_RESTART_TIMEOUT,
     UPDATE_TIMEOUT,
 )
 
@@ -48,6 +50,20 @@ class UpgradablePackage:
 
 
 @dataclass
+class ProxmoxGuest:
+    """A Proxmox VE VM or container."""
+
+    vmid: int
+    name: str
+    kind: str  # "qemu" or "lxc"
+    status: str
+
+    def __str__(self) -> str:
+        label = "VM" if self.kind == "qemu" else "CT"
+        return f"{label} {self.vmid} ({self.name})"
+
+
+@dataclass
 class UpdateCheckResult:
     """Result of a check for available updates and reboot state."""
 
@@ -59,6 +75,17 @@ class UpdateCheckResult:
     newest_kernel: str | None = None
     os_name: str | None = None
     os_version: str | None = None
+    # Unix timestamp of the last boot (btime from /proc/stat).
+    boot_time: int | None = None
+    # None if needrestart isn't installed.
+    services_to_restart: list[str] | None = None
+    # Proxmox VE only: guests with "start at boot" that aren't running. None
+    # if not a Proxmox VE host or the guest list couldn't be read.
+    autostart_guests_stopped: list[ProxmoxGuest] | None = None
+
+    @property
+    def is_proxmox(self) -> bool:
+        return bool(self.os_version and self.os_version.startswith("Proxmox VE"))
 
     @property
     def kernel_reboot_required(self) -> bool:
@@ -92,6 +119,8 @@ class DockerContainerInfo:
     image_ref: str
     image_digest: str | None
     labels: dict[str, str]
+    state: str = "running"
+    restart_policy: str = "no"
 
 
 class ServerConnection:
@@ -286,6 +315,13 @@ class ServerConnection:
             ]
 
         running_kernel, newest_kernel = await self._get_kernels()
+        boot_time = await self._get_boot_time()
+        services = await self._get_services_to_restart()
+        guests = (
+            await self._get_autostart_guests_stopped()
+            if os_version and os_version.startswith("Proxmox VE")
+            else None
+        )
 
         return UpdateCheckResult(
             update_count=len(packages),
@@ -294,6 +330,9 @@ class ServerConnection:
             reboot_required_packages=reboot_packages,
             running_kernel=running_kernel,
             newest_kernel=newest_kernel,
+            boot_time=boot_time,
+            services_to_restart=services,
+            autostart_guests_stopped=guests,
             os_name=os_release.get("PRETTY_NAME"),
             os_version=os_version,
         )
@@ -313,6 +352,102 @@ class ServerConnection:
             if line.startswith("/boot/vmlinuz-")
         ]
         return running, _newest_kernel(running, installed)
+
+    async def _get_boot_time(self) -> int | None:
+        result = await self._run("awk '/^btime/ {print $2}' /proc/stat")
+        try:
+            return int(str(result.stdout or "").strip())
+        except ValueError:
+            return None
+
+    async def _get_services_to_restart(self) -> list[str] | None:
+        """Services running outdated binaries/libraries, as listed by needrestart.
+
+        Returns None if needrestart isn't installed. Needs root to see all
+        processes, hence sudo.
+        """
+        check = await self._run("test -x /usr/sbin/needrestart && echo yes || echo no")
+        if str(check.stdout or "").strip() != "yes":
+            return None
+        result = await self._run(
+            "needrestart -b", use_sudo=True, timeout=NEEDRESTART_TIMEOUT
+        )
+        if result.exit_status != 0:
+            _LOGGER.warning(
+                "needrestart auf %s fehlgeschlagen (Exit %s): %s",
+                self._host,
+                result.exit_status,
+                str(result.stderr).strip(),
+            )
+            return []
+        return _parse_needrestart(str(result.stdout or ""))
+
+    async def _get_autostart_guests_stopped(self) -> list[ProxmoxGuest] | None:
+        """Proxmox VE guests with onboot=1 that aren't running.
+
+        Only stopped guests' configs are fetched, so this stays cheap on hosts
+        where everything runs as expected.
+        """
+        node_result = await self._run("hostname -s")
+        node = str(node_result.stdout or "").strip()
+        if node_result.exit_status != 0 or not node:
+            return None
+        node_path = f"/nodes/{shlex.quote(node)}"
+
+        stopped: list[ProxmoxGuest] = []
+        for kind in ("qemu", "lxc"):
+            guests = await self._pvesh_get(f"{node_path}/{kind}")
+            if not isinstance(guests, list):
+                return None
+            for guest in guests:
+                if guest.get("template") or guest.get("status") == "running":
+                    continue
+                try:
+                    vmid = int(guest["vmid"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                config = await self._pvesh_get(f"{node_path}/{kind}/{vmid}/config")
+                if not isinstance(config, dict) or str(config.get("onboot", "0")) != "1":
+                    continue
+                stopped.append(
+                    ProxmoxGuest(
+                        vmid=vmid,
+                        name=str(guest.get("name") or vmid),
+                        kind=kind,
+                        status=str(guest.get("status") or "unknown"),
+                    )
+                )
+        return sorted(stopped, key=lambda guest: guest.vmid)
+
+    async def _pvesh_get(self, path: str) -> object | None:
+        result = await self._run(
+            f"pvesh get {path} --output-format json", use_sudo=True
+        )
+        if result.exit_status != 0:
+            _LOGGER.debug(
+                "pvesh get %s auf %s fehlgeschlagen: %s",
+                path,
+                self._host,
+                str(result.stderr).strip(),
+            )
+            return None
+        try:
+            return json.loads(str(result.stdout or "null"))
+        except json.JSONDecodeError:
+            return None
+
+    async def async_restart_services(self, services: list[str]) -> None:
+        """Restart the given systemd services."""
+        quoted = " ".join(shlex.quote(service) for service in services)
+        result = await self._run(
+            f"systemctl restart {quoted}",
+            use_sudo=True,
+            timeout=SERVICE_RESTART_TIMEOUT,
+        )
+        if result.exit_status != 0:
+            raise ServerCommandError(
+                f"systemctl restart fehlgeschlagen: {str(result.stderr).strip()}"
+            )
 
     async def async_apply_updates(self) -> None:
         """Run apt-get update and a non-interactive dist-upgrade.
@@ -367,14 +502,15 @@ class ServerConnection:
             timeout=UPDATE_TIMEOUT,
         )
 
-    async def async_list_docker_containers(self) -> list[DockerContainerInfo]:
-        """List running Docker containers and each one's image provenance.
+    async def async_list_docker_containers(self) -> list[DockerContainerInfo] | None:
+        """List all Docker containers (incl. stopped ones) and their image provenance.
 
-        Returns an empty list if Docker isn't installed or reachable rather
-        than raising, since not every server configured in this integration
-        is expected to run Docker.
+        Returns None if Docker isn't installed or reachable rather than
+        raising, since not every server configured in this integration is
+        expected to run Docker. Which stopped containers are tracked is up to
+        the caller.
         """
-        ps_result = await self._run("docker ps --format '{{.ID}}'", use_sudo=True)
+        ps_result = await self._run("docker ps -a --format '{{.ID}}'", use_sudo=True)
         if ps_result.exit_status != 0:
             _LOGGER.debug(
                 "docker ps auf %s nicht verfügbar (Exit %s): %s",
@@ -382,7 +518,7 @@ class ServerConnection:
                 ps_result.exit_status,
                 str(ps_result.stderr).strip(),
             )
-            return []
+            return None
 
         container_ids = [
             line.strip() for line in str(ps_result.stdout or "").splitlines() if line.strip()
@@ -422,6 +558,11 @@ class ServerConnection:
                     image_ref=image_ref,
                     image_digest=info.get("digest"),
                     labels=labels,
+                    state=(entry.get("State") or {}).get("Status") or "unknown",
+                    restart_policy=(
+                        ((entry.get("HostConfig") or {}).get("RestartPolicy") or {}).get("Name")
+                        or "no"
+                    ),
                 )
             )
         return containers
@@ -486,17 +627,51 @@ class ServerConnection:
                 f"docker compose up fehlgeschlagen: {str(up.stderr).strip()}"
             )
 
-    async def async_restart_container(self, name: str) -> None:
-        """Restart a single Docker container (`docker restart`)."""
+    async def async_container_action(self, action: str, name: str) -> None:
+        """Run `docker restart|stop|start <name>`."""
+        if action not in ("restart", "stop", "start"):
+            raise ValueError(f"Unbekannte Container-Aktion {action}")
         result = await self._run(
-            f"docker restart {shlex.quote(name)}",
+            f"docker {action} {shlex.quote(name)}",
             use_sudo=True,
             timeout=CONTAINER_RESTART_TIMEOUT,
         )
         if result.exit_status != 0:
             raise ServerCommandError(
-                f"docker restart {name} fehlgeschlagen: {str(result.stderr).strip()}"
+                f"docker {action} {name} fehlgeschlagen: {str(result.stderr).strip()}"
             )
+
+    async def async_get_container_states(self) -> dict[str, tuple[str, str]]:
+        """Return {name: (state, status text)} for all containers."""
+        result = await self._run(
+            "docker ps -a --format '{{.Names}}\t{{.State}}\t{{.Status}}'",
+            use_sudo=True,
+        )
+        if result.exit_status != 0:
+            raise ServerCommandError(
+                f"docker ps fehlgeschlagen: {str(result.stderr).strip()}"
+            )
+        states: dict[str, tuple[str, str]] = {}
+        for line in str(result.stdout or "").splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2 and parts[0]:
+                states[parts[0]] = (parts[1], parts[2] if len(parts) > 2 else "")
+        return states
+
+    async def async_prune_images(self) -> str | None:
+        """Remove dangling images (`docker image prune -f`).
+
+        Returns docker's "Total reclaimed space" value, if reported.
+        """
+        result = await self._run(
+            "docker image prune -f", use_sudo=True, timeout=CONTAINER_RESTART_TIMEOUT
+        )
+        if result.exit_status != 0:
+            raise ServerCommandError(
+                f"docker image prune fehlgeschlagen: {str(result.stderr).strip()}"
+            )
+        match = re.search(r"Total reclaimed space:\s*(\S+)", str(result.stdout or ""))
+        return match.group(1) if match else None
 
     async def async_reboot(self) -> None:
         """Reboot the remote server. The connection is expected to drop."""
@@ -540,6 +715,16 @@ def _parse_upgradable(output: str) -> list[UpgradablePackage]:
         else:
             packages.append(UpgradablePackage(name=line.split("/", 1)[0].strip()))
     return packages
+
+
+def _parse_needrestart(output: str) -> list[str]:
+    """Parse `needrestart -b` output (lines like `NEEDRESTART-SVC: ssh.service`)."""
+    services = []
+    for line in output.splitlines():
+        key, _, value = line.partition(":")
+        if key.strip() == "NEEDRESTART-SVC" and value.strip():
+            services.append(value.strip())
+    return sorted(set(services))
 
 
 _KERNEL_FLAVOR_RE = re.compile(r"^\d+(?:\.\d+)*-[\d.]+-(?P<flavor>.+)$")

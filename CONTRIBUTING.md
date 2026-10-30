@@ -19,7 +19,20 @@ python3 -m py_compile custom_components/server_updater/*.py
 python3 -m pyflakes custom_components/server_updater/*.py
 ```
 
-Zusätzlich validieren zwei GitHub Actions (`.github/workflows/validate.yml`)
+## Tests
+
+`tests/` enthält Logiktests gegen einen simulierten Server
+(`tests/fake_server.py`), der die SSH-Befehle der Integration beantwortet
+und seinen Zustand bei Updates, Neustarts und Container-Aktionen ändert.
+Dadurch werden Befehlsaufbau und Auswertung in `ssh_client.py` mitgetestet.
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements_test.txt
+.venv/bin/pytest
+```
+
+Zusätzlich validieren GitHub Actions (`.github/workflows/validate.yml`)
 jeden Push/PR automatisch gegen [hassfest](https://developers.home-assistant.io/docs/creating_integration_manifest/#manifestjson)
 und die [HACS-Anforderungen](https://hacs.xyz/docs/publish/integration/).
 

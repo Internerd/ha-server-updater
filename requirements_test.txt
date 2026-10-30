@@ -1,0 +1,4 @@
+pytest-homeassistant-custom-component==0.13.316
+# SSH is simulated in the tests; pinned to a release compatible with the
+# cryptography version Home Assistant pins.
+asyncssh==2.21.0

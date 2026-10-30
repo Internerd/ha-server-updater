@@ -15,10 +15,10 @@ from .const import DOMAIN
 from .coordinator import ServerUpdaterCoordinator
 from .docker_coordinator import ContainerCoordinator
 from .entity import (
+    ContainerEntity,
     ServerUpdaterEntity,
-    async_remove_stale_containers,
+    async_track_container_entities,
     container_device_id,
-    container_device_info,
 )
 from .ssh_client import ServerUpdaterError
 
@@ -32,41 +32,30 @@ async def async_setup_entry(
     data = hass.data[DOMAIN][entry.entry_id]
     coordinator: ServerUpdaterCoordinator = data["apt"]
     docker_coordinator: ContainerCoordinator = data["docker"]
-    async_add_entities(
-        [
-            UpdateButton(coordinator),
-            UpdateAndRebootButton(coordinator),
-            RebootButton(coordinator),
-            RescanContainersButton(entry, docker_coordinator),
-        ]
-    )
+    entities: list[ButtonEntity] = [
+        UpdateButton(coordinator),
+        UpdateAndRebootButton(coordinator),
+        RebootButton(coordinator),
+        RescanContainersButton(entry, docker_coordinator),
+        PruneImagesButton(entry, docker_coordinator),
+    ]
+    # needrestart is optional; without it there is nothing to restart.
+    if coordinator.data and coordinator.data.services_to_restart is not None:
+        entities.append(RestartServicesButton(coordinator))
+    async_add_entities(entities)
 
-    # Unlike update entities, restart buttons exist for every running
+    # Unlike update entities, restart buttons exist for every tracked
     # container, including ones whose image can't be checked for updates.
-    known_names: set[str] = set()
-
-    def _sync_restart_buttons() -> None:
-        names = set(docker_coordinator.containers)
-        async_remove_stale_containers(
-            hass,
-            entry,
-            "button",
-            {_restart_unique_id(entry, n) for n in names},
-            {container_device_id(entry, n) for n in names},
-        )
-        known_names.intersection_update(names)
-
-        new_entities = [
-            RestartContainerButton(docker_coordinator, entry, name)
-            for name in sorted(names - known_names)
-        ]
-        known_names.update(names)
-        if new_entities:
-            async_add_entities(new_entities)
-
-    docker_coordinator.async_add_inventory_listener(_sync_restart_buttons)
-    if docker_coordinator.inventory_loaded:
-        _sync_restart_buttons()
+    async_track_container_entities(
+        hass,
+        entry,
+        docker_coordinator,
+        "button",
+        lambda: docker_coordinator.containers,
+        lambda name: _restart_unique_id(entry, name),
+        lambda name: RestartContainerButton(docker_coordinator, entry, name),
+        async_add_entities,
+    )
 
 
 def _restart_unique_id(entry: ConfigEntry, name: str) -> str:
@@ -91,10 +80,8 @@ class _BaseUpdateButton(ServerUpdaterEntity, ButtonEntity):
         try:
             await self.coordinator.async_apply_updates(reboot=self._reboot)
         except ServerUpdaterError:
-            _LOGGER.error(
-                "Update-Vorgang für %s fehlgeschlagen, siehe vorheriges Log",
-                self.coordinator.entry.title,
-            )
+            # Already logged and reported (event/notification) by the coordinator.
+            pass
 
 
 class UpdateButton(_BaseUpdateButton):
@@ -142,21 +129,50 @@ class RebootButton(ServerUpdaterEntity, ButtonEntity):
             raise HomeAssistantError(str(err)) from err
 
 
-class RescanContainersButton(CoordinatorEntity[ContainerCoordinator], ButtonEntity):
-    """Re-discovers Docker containers running on the server.
+class RestartServicesButton(ServerUpdaterEntity, ButtonEntity):
+    """Restarts the services needrestart reports as running outdated code."""
 
-    Shares the server device (not a per-container one) since it drives the
-    inventory itself rather than representing one container.
+    _attr_translation_key = "restart_services"
+    _attr_icon = "mdi:cog-refresh"
+
+    def __init__(self, coordinator: ServerUpdaterCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_restart_services"
+
+    @property
+    def available(self) -> bool:
+        return super().available and not self.coordinator.busy
+
+    async def async_press(self) -> None:
+        try:
+            await self.coordinator.async_restart_services()
+        except ServerUpdaterError as err:
+            raise HomeAssistantError(str(err)) from err
+
+
+class _ServerDockerButton(CoordinatorEntity[ContainerCoordinator], ButtonEntity):
+    """Server-level Docker button.
+
+    Shares the server device (not a per-container one) since it acts on the
+    server's Docker as a whole rather than on one container.
     """
 
     _attr_has_entity_name = True
+
+    def __init__(self, entry: ConfigEntry, docker_coordinator: ContainerCoordinator) -> None:
+        super().__init__(docker_coordinator)
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, entry.entry_id)})
+
+
+class RescanContainersButton(_ServerDockerButton):
+    """Re-discovers Docker containers on the server."""
+
     _attr_translation_key = "rescan_containers"
     _attr_icon = "mdi:magnify-scan"
 
     def __init__(self, entry: ConfigEntry, docker_coordinator: ContainerCoordinator) -> None:
-        super().__init__(docker_coordinator)
+        super().__init__(entry, docker_coordinator)
         self._attr_unique_id = f"{entry.entry_id}_rescan_containers"
-        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, entry.entry_id)})
 
     @property
     def available(self) -> bool:
@@ -172,42 +188,54 @@ class RescanContainersButton(CoordinatorEntity[ContainerCoordinator], ButtonEnti
             )
 
 
-class RestartContainerButton(CoordinatorEntity[ContainerCoordinator], ButtonEntity):
+class PruneImagesButton(_ServerDockerButton):
+    """Removes dangling Docker images (`docker image prune -f`)."""
+
+    _attr_translation_key = "prune_images"
+    _attr_icon = "mdi:delete-sweep"
+
+    def __init__(self, entry: ConfigEntry, docker_coordinator: ContainerCoordinator) -> None:
+        super().__init__(entry, docker_coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_prune_images"
+
+    @property
+    def available(self) -> bool:
+        # Not tied to the registry checks: pruning only needs SSH + docker.
+        return bool(self.coordinator.docker_available) and not self.coordinator.scanning
+
+    async def async_press(self) -> None:
+        try:
+            await self.coordinator.async_prune_images()
+        except ServerUpdaterError as err:
+            raise HomeAssistantError(str(err)) from err
+
+
+class RestartContainerButton(ContainerEntity, ButtonEntity):
     """Restarts one Docker container (`docker restart`)."""
 
-    _attr_has_entity_name = True
     _attr_translation_key = "restart_container"
     _attr_device_class = ButtonDeviceClass.RESTART
 
     def __init__(
         self, coordinator: ContainerCoordinator, entry: ConfigEntry, name: str
     ) -> None:
-        super().__init__(coordinator)
-        self._entry = entry
-        self._container_name = name
+        super().__init__(coordinator, entry, name)
         self._attr_unique_id = _restart_unique_id(entry, name)
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        status = self.coordinator.containers.get(self._container_name)
-        return container_device_info(
-            self._entry, self._container_name, status.container.image_ref if status else None
-        )
 
     @property
     def available(self) -> bool:
         # Deliberately not tied to the coordinator's last registry check:
         # restarting works over SSH even if the registry is unreachable.
-        status = self.coordinator.containers.get(self._container_name)
+        status = self._status
         return (
             status is not None
-            and not status.restarting
+            and status.operation is None
             and not status.installing
             and not self.coordinator.scanning
         )
 
     async def async_press(self) -> None:
         try:
-            await self.coordinator.async_restart_container(self._container_name)
+            await self.coordinator.async_container_action(self._container_name, "restart")
         except ServerUpdaterError as err:
             raise HomeAssistantError(str(err)) from err

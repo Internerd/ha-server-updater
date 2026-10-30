@@ -19,12 +19,14 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_NOTIFY_ON_FAILURE,
     CONF_PRIVATE_KEY,
     CONF_PRIVATE_KEY_PASSPHRASE,
     CONF_REFRESH_APT_CACHE,
     CONF_SCAN_INTERVAL_MINUTES,
     CONF_SUDO_PASSWORD,
     CONF_USE_SUDO,
+    DEFAULT_NOTIFY_ON_FAILURE,
     DEFAULT_PORT,
     DEFAULT_REFRESH_APT_CACHE,
     DEFAULT_USE_SUDO,
@@ -178,6 +180,12 @@ class ServerUpdaterOptionsFlow(OptionsFlow):
                     CONF_REFRESH_APT_CACHE,
                     default=current.get(
                         CONF_REFRESH_APT_CACHE, DEFAULT_REFRESH_APT_CACHE
+                    ),
+                ): BooleanSelector(),
+                vol.Required(
+                    CONF_NOTIFY_ON_FAILURE,
+                    default=current.get(
+                        CONF_NOTIFY_ON_FAILURE, DEFAULT_NOTIFY_ON_FAILURE
                     ),
                 ): BooleanSelector(),
             }
