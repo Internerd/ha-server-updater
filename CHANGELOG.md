@@ -6,6 +6,33 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-30
+
+### Hinzugefügt
+
+- Button `Neu starten` pro Server (`button.<server>_reboot`): startet den
+  Server neu, ohne vorher Updates einzuspielen – zusätzlich zu
+  `Aktualisieren und neu starten`.
+- Button `Neu starten` pro Docker-Container (`button.<container>_restart`):
+  führt `docker restart` aus. Gibt es für jeden laufenden Container, auch
+  für solche ohne `update`-Entität (z. B. lokal gebaute Images); diese
+  bekommen dafür jetzt ebenfalls ein eigenes Gerät.
+- Reparatur-Hinweis „Neustart erforderlich“ ist jetzt direkt behebbar:
+  „Beheben“ unter Einstellungen → System → Reparaturen startet den Server
+  nach Bestätigung neu.
+- Kernel-Updates werden als Neustart-Grund erkannt, wenn unter `/boot` ein
+  neuerer Kernel (gleicher Variante, z. B. `-pve`) liegt als der laufende.
+  Dadurch erscheint der Reparatur-Hinweis jetzt auch auf Proxmox VE, das bei
+  Kernel-Updates keine `/var/run/reboot-required` anlegt. Neue Attribute
+  `running_kernel` und `newest_kernel` am `reboot_required`-Sensor.
+
+### Geändert
+
+- Nach einem Neustart (Button, `Aktualisieren und neu starten` oder
+  Reparatur-Hinweis) wird der Server nach ca. drei Minuten erneut geprüft,
+  statt sofort – die sofortige Abfrage lief bisher gegen den gerade
+  herunterfahrenden Server.
+
 ## [0.4.1] - 2026-10-12
 
 ### Geändert
@@ -131,7 +158,8 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 - `button` zum Aktualisieren sowie Aktualisieren + Neustarten
 - HACS-Kompatibilität (`hacs.json`, versioniertes `manifest.json`)
 
-[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Internerd/ha-server-updater/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/Internerd/ha-server-updater/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Internerd/ha-server-updater/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/Internerd/ha-server-updater/compare/v0.3.0...v0.3.1

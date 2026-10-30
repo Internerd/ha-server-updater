@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import re
+import shlex
 from dataclasses import dataclass, field
 
 import asyncssh
@@ -17,6 +18,7 @@ from .const import (
     APT_FETCH_RETRY_DELAY,
     COMMAND_TIMEOUT,
     CONNECT_TIMEOUT,
+    CONTAINER_RESTART_TIMEOUT,
     REBOOT_TIMEOUT,
     UPDATE_TIMEOUT,
 )
@@ -53,8 +55,28 @@ class UpdateCheckResult:
     packages: list[UpgradablePackage] = field(default_factory=list)
     reboot_required: bool = False
     reboot_required_packages: list[str] = field(default_factory=list)
+    running_kernel: str | None = None
+    newest_kernel: str | None = None
     os_name: str | None = None
     os_version: str | None = None
+
+    @property
+    def kernel_reboot_required(self) -> bool:
+        """A newer kernel is installed than the one currently running.
+
+        Proxmox VE (and Debian without update-notifier) doesn't create
+        /var/run/reboot-required for kernel updates, so this is detected
+        separately by comparing `uname -r` with the kernels in /boot.
+        """
+        return bool(
+            self.running_kernel
+            and self.newest_kernel
+            and self.newest_kernel != self.running_kernel
+        )
+
+    @property
+    def any_reboot_required(self) -> bool:
+        return self.reboot_required or self.kernel_reboot_required
 
 
 @dataclass
@@ -263,14 +285,34 @@ class ServerConnection:
                 if line.strip()
             ]
 
+        running_kernel, newest_kernel = await self._get_kernels()
+
         return UpdateCheckResult(
             update_count=len(packages),
             packages=packages,
             reboot_required=reboot_required,
             reboot_required_packages=reboot_packages,
+            running_kernel=running_kernel,
+            newest_kernel=newest_kernel,
             os_name=os_release.get("PRETTY_NAME"),
             os_version=os_version,
         )
+
+    async def _get_kernels(self) -> tuple[str | None, str | None]:
+        """Return the running kernel and the newest installed one of the same flavor."""
+        result = await self._run(
+            "uname -r && { ls -1 /boot/vmlinuz-* 2>/dev/null || true; }"
+        )
+        lines = [line.strip() for line in str(result.stdout or "").splitlines() if line.strip()]
+        if result.exit_status != 0 or not lines:
+            return None, None
+        running = lines[0]
+        installed = [
+            line.removeprefix("/boot/vmlinuz-")
+            for line in lines[1:]
+            if line.startswith("/boot/vmlinuz-")
+        ]
+        return running, _newest_kernel(running, installed)
 
     async def async_apply_updates(self) -> None:
         """Run apt-get update and a non-interactive dist-upgrade.
@@ -444,6 +486,18 @@ class ServerConnection:
                 f"docker compose up fehlgeschlagen: {str(up.stderr).strip()}"
             )
 
+    async def async_restart_container(self, name: str) -> None:
+        """Restart a single Docker container (`docker restart`)."""
+        result = await self._run(
+            f"docker restart {shlex.quote(name)}",
+            use_sudo=True,
+            timeout=CONTAINER_RESTART_TIMEOUT,
+        )
+        if result.exit_status != 0:
+            raise ServerCommandError(
+                f"docker restart {name} fehlgeschlagen: {str(result.stderr).strip()}"
+            )
+
     async def async_reboot(self) -> None:
         """Reboot the remote server. The connection is expected to drop."""
         try:
@@ -486,6 +540,34 @@ def _parse_upgradable(output: str) -> list[UpgradablePackage]:
         else:
             packages.append(UpgradablePackage(name=line.split("/", 1)[0].strip()))
     return packages
+
+
+_KERNEL_FLAVOR_RE = re.compile(r"^\d+(?:\.\d+)*-[\d.]+-(?P<flavor>.+)$")
+
+
+def _kernel_flavor(release: str) -> str | None:
+    """Return the flavor of a kernel release, e.g. "pve" for "6.8.12-4-pve"."""
+    match = _KERNEL_FLAVOR_RE.match(release)
+    return match.group("flavor") if match else None
+
+
+def _version_key(release: str) -> list[tuple[int, int, str]]:
+    """Natural sort key, comparable to `sort -V` for kernel release strings."""
+    return [
+        (0, int(part), "") if part.isdigit() else (1, 0, part)
+        for part in re.findall(r"\d+|\D+", release)
+    ]
+
+
+def _newest_kernel(running: str, installed: list[str]) -> str:
+    """Return the newest installed kernel of the running kernel's flavor.
+
+    Only kernels of the same flavor are compared, so e.g. an additionally
+    installed -cloud-amd64 kernel doesn't count as an update for -amd64.
+    """
+    flavor = _kernel_flavor(running)
+    candidates = [k for k in installed if _kernel_flavor(k) == flavor]
+    return max([running, *candidates], key=_version_key)
 
 
 def _is_fetch_failure(stderr: str) -> bool:

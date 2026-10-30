@@ -32,10 +32,12 @@ Es lassen sich beliebig viele Server konfigurieren, jeder als eigener
 | Entität | Typ | Beschreibung |
 |---|---|---|
 | `update.<server>_system_packages` | update | Ausstehende Paket-Updates des Servers – erscheint unter **Einstellungen → Updates** neben Core, Add-ons und HACS (siehe unten) |
-| `binary_sensor.<server>_reboot_required` | binary_sensor | An, wenn der Server einen Neustart benötigt (`/var/run/reboot-required`). Attribut: `reboot_required_packages` |
+| `binary_sensor.<server>_reboot_required` | binary_sensor | An, wenn der Server einen Neustart benötigt (`/var/run/reboot-required` oder neuerer Kernel installiert als aktiv). Attribute: `reboot_required_packages`, `running_kernel`, `newest_kernel` |
 | `button.<server>_update` | button | Führt `apt-get update && apt-get dist-upgrade` auf dem Server aus |
 | `button.<server>_update_and_reboot` | button | Wie oben, anschließend Neustart des Servers |
+| `button.<server>_reboot` | button | Startet den Server neu, **ohne** vorher Updates einzuspielen |
 | `button.<server>_rescan_containers` | button | Durchsucht den Server erneut nach laufenden Docker-Containern (siehe unten) |
+| `button.<container>_restart` | button | Pro laufendem Docker-Container: startet den Container neu (`docker restart`) |
 | `update.<container>` | update | Pro erkennbarem Docker-Container: zeigt an, ob ein neueres Image verfügbar ist; bei Docker-Compose-Containern zusätzlich ein Installieren-Button (siehe unten) |
 
 Nach einem Tastendruck laufen Update/Reboot im Hintergrund; danach werden die
@@ -65,12 +67,33 @@ Einstellungen-Symbol).
   der Mirror gerade synchronisiert), werden die Paketlisten nach 30 s ohne
   HTTP-Cache neu geladen und das Upgrade einmal wiederholt.
 
-**Neustart erforderlich**: Meldet der Server `/var/run/reboot-required`, legt
-die Integration zusätzlich einen Hinweis unter **Einstellungen → System →
-Reparaturen** an (mit den auslösenden Paketen). Er verschwindet bei der
-nächsten Abfrage, sobald kein Neustart mehr nötig ist. Der
+**Neustart erforderlich**: Benötigt der Server einen Neustart, legt die
+Integration zusätzlich einen Hinweis unter **Einstellungen → System →
+Reparaturen** an (mit dem Grund). Erkannt wird das auf zwei Wegen:
+
+- `/var/run/reboot-required` existiert (Ubuntu, Debian mit
+  `update-notifier-common`/`unattended-upgrades`) – der Hinweis nennt dann
+  die auslösenden Pakete aus `/var/run/reboot-required.pkgs`.
+- Unter `/boot` ist ein neuerer Kernel installiert als der laufende
+  (`uname -r`). Das deckt vor allem **Proxmox VE** ab, das bei
+  Kernel-Updates keine `reboot-required`-Datei anlegt. Verglichen werden
+  nur Kernel derselben Variante (z. B. `-pve`, `-amd64`), sodass ein
+  zusätzlich installierter `-cloud-amd64`-Kernel keinen Hinweis auslöst.
+
+Der Hinweis ist **direkt behebbar**: Über „Beheben“ öffnet sich ein
+Bestätigungsdialog, der den Server neu startet (ohne vorher Updates
+einzuspielen). Danach verschwindet der Hinweis; etwa drei Minuten später
+wird der Server erneut geprüft, und nur wenn dann immer noch ein Neustart
+nötig ist, erscheint er wieder. Ohne Klick verschwindet er bei der nächsten
+Abfrage, sobald kein Neustart mehr nötig ist. Der
 `binary_sensor.<server>_reboot_required` bleibt für Automationen
 erhalten.
+
+**Server neu starten**: Der Button `Neu starten` startet den Server sofort
+neu, unabhängig von ausstehenden Updates – getrennt von `Aktualisieren und
+neu starten`. Nach jedem Neustart (egal über welchen Weg) wird der Server
+nach ca. drei Minuten automatisch erneut abgefragt, damit Sensoren und der
+Reparatur-Hinweis den neuen Stand zeigen.
 
 > Bis Version 0.3.x gab es stattdessen `binary_sensor.<server>_updates_available`.
 > Er wurde in 0.4.0 entfernt; der Registry-Eintrag wird beim Start
@@ -114,6 +137,12 @@ eine neue ID, behält aber Namen, Entität und Entitäts-ID. Verwaiste
 Entitäten/Geräte älterer Versionen (≤ 0.3.0, die noch an die Container-ID
 gebunden waren und dadurch Duplikate wie `update.<name>_2` erzeugt haben)
 werden beim ersten erfolgreichen Scan nach dem Update automatisch entfernt.
+
+**Container neu starten**: Jeder beim Scan gefundene laufende Container
+bekommt ein eigenes Gerät mit dem Button `Neu starten`, der
+`docker restart <name>` ausführt – auch für Container, für die es keine
+`update`-Entität gibt (z. B. lokal gebaute Images). Der Container behält
+dabei ID und Konfiguration; ein Neu-Inventarisieren ist nicht nötig.
 
 Jede `update`-Entität zeigt die (verkürzten) Digests als installierte/neueste
 Version und – sofern das Image das OCI-Label
@@ -236,6 +265,11 @@ sudoers-Eintrag anlegen, z. B. via `visudo -f /etc/sudoers.d/ha-server-updater`:
 ha_updater ALL=(root) NOPASSWD: /usr/bin/apt-get, /usr/sbin/reboot
 ```
 
+Für die Docker-Funktionen (Inventarisierung, Installieren, Container neu
+starten) zusätzlich `/usr/bin/docker` ergänzen – oder den Benutzer in die
+Gruppe `docker` aufnehmen und Sudo für ihn deaktivieren, falls er nur
+Docker-Hosts verwaltet.
+
 `ha_updater` durch den in Home Assistant konfigurierten Benutzernamen
 ersetzen. So bekommt der SSH-Nutzer ausschließlich für `apt-get` und `reboot`
 passwortlosen Root-Zugriff, statt vollen Sudo-Zugriff.
@@ -291,11 +325,19 @@ für alle drei Systeme zum Einsatz.
 - Während ein Update läuft, ist die Entität `unavailable`, um Doppel-Presses
   zu verhindern
 
-**Entitäten bleiben nach einem Neustart-Button `unavailable`**
-- Erwartet: die SSH-Verbindung bricht durch den Reboot ab. Nach dem nächsten
-  regulären Poll-Intervall (oder manuellem "Neu laden" der Integration)
-  aktualisieren sich die Sensoren wieder, sobald der Server wieder erreichbar
-  ist
+**Entitäten bleiben nach einem Neustart `unavailable`**
+- Die Integration fragt den Server ca. drei Minuten nach dem Neustart-Befehl
+  erneut ab. Braucht der Server länger zum Hochfahren (z. B. viele VMs mit
+  Startverzögerung), aktualisieren sich die Sensoren beim nächsten regulären
+  Poll-Intervall oder nach manuellem "Neu laden" der Integration
+
+**Reparatur-Hinweis „Neustart erforderlich“ verschwindet auf Proxmox VE nicht**
+- Der Hinweis vergleicht den laufenden Kernel mit dem neuesten unter
+  `/boot`. Ist per `proxmox-boot-tool kernel pin` bewusst ein älterer
+  Kernel fixiert, bleibt der Hinweis bestehen – dann die nicht benötigten
+  neueren Kernel entfernen oder den Pin aufheben
+- Attribute `running_kernel`/`newest_kernel` von
+  `binary_sensor.<server>_reboot_required` zeigen den Vergleich
 
 **Keine `update`-Entitäten für Docker-Container, obwohl welche laufen**
 - Erwartet, wenn die Registry nicht anonym abfragbar ist (privates Image),

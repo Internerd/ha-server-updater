@@ -49,8 +49,14 @@
       "update_and_reboot": {
         "name": "Aktualisieren und neu starten"
       },
+      "reboot": {
+        "name": "Neu starten"
+      },
       "rescan_containers": {
         "name": "Container neu inventarisieren"
+      },
+      "restart_container": {
+        "name": "Neu starten"
       }
     },
     "update": {
@@ -62,7 +68,18 @@
   "issues": {
     "reboot_required": {
       "title": "{name}: Neustart erforderlich",
-      "description": "Der Server **{name}** muss neu gestartet werden, damit installierte Updates wirksam werden.\n\nAuslösende Pakete: {packages}\n\nNeustart z. B. über den Button „Aktualisieren und neu starten“ des Servers oder manuell. Der Hinweis verschwindet nach der nächsten Abfrage, sobald kein Neustart mehr nötig ist."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "{name} neu starten",
+            "description": "Der Server **{name}** muss neu gestartet werden, damit installierte Updates wirksam werden.\n\nGrund: {reason}\n\nMit **Absenden** wird der Server jetzt neu gestartet (ohne vorher Updates einzuspielen). Laufende Dienste, Container und – bei Proxmox VE – VMs/LXCs sind währenddessen nicht erreichbar.\n\nNach etwa drei Minuten wird der Server erneut geprüft; ist dann immer noch ein Neustart nötig, erscheint der Hinweis wieder."
+          }
+        },
+        "abort": {
+          "not_loaded": "Die Integration für diesen Server ist nicht geladen.",
+          "reboot_failed": "Neustart fehlgeschlagen: {error}"
+        }
+      }
     }
   }
 }

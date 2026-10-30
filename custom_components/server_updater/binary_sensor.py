@@ -6,7 +6,13 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import ATTR_REBOOT_PACKAGES, DOMAIN, MAX_PACKAGE_ATTRIBUTE
+from .const import (
+    ATTR_NEWEST_KERNEL,
+    ATTR_REBOOT_PACKAGES,
+    ATTR_RUNNING_KERNEL,
+    DOMAIN,
+    MAX_PACKAGE_ATTRIBUTE,
+)
 from .coordinator import ServerUpdaterCoordinator
 from .entity import ServerUpdaterEntity
 
@@ -24,7 +30,11 @@ async def async_setup_entry(
 
 
 class RebootRequiredBinarySensor(ServerUpdaterEntity, BinarySensorEntity):
-    """Indicates whether the server needs a reboot."""
+    """Indicates whether the server needs a reboot.
+
+    On when /var/run/reboot-required exists or a newer kernel is installed
+    than the one running (Proxmox VE doesn't flag kernel updates otherwise).
+    """
 
     _attr_translation_key = "reboot_required"
     _attr_icon = "mdi:restart-alert"
@@ -37,7 +47,7 @@ class RebootRequiredBinarySensor(ServerUpdaterEntity, BinarySensorEntity):
     def is_on(self) -> bool | None:
         if self.coordinator.data is None:
             return None
-        return self.coordinator.data.reboot_required
+        return self.coordinator.data.any_reboot_required
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -46,4 +56,6 @@ class RebootRequiredBinarySensor(ServerUpdaterEntity, BinarySensorEntity):
             return {}
         return {
             ATTR_REBOOT_PACKAGES: data.reboot_required_packages[:MAX_PACKAGE_ATTRIBUTE],
+            ATTR_RUNNING_KERNEL: data.running_kernel,
+            ATTR_NEWEST_KERNEL: data.newest_kernel,
         }

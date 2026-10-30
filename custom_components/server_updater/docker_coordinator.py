@@ -47,6 +47,7 @@ class ContainerUpdateStatus:
     compose_working_dir: str | None = None
     compose_installable: bool = False
     installing: bool = False
+    restarting: bool = False
     # Set once the container's image update could be determined at least
     # once; only tracked containers get an update entity.
     tracked: bool = False
@@ -169,6 +170,24 @@ class ContainerCoordinator(DataUpdateCoordinator[dict[str, ContainerUpdateStatus
             self.async_update_listeners()
 
         await self.async_rescan()
+
+    async def async_restart_container(self, name: str) -> None:
+        """Restart one container (`docker restart`), keeping its ID and config."""
+        status = self.containers.get(name)
+        if status is None:
+            raise ServerUpdaterError(
+                "Container nicht mehr im Inventar bekannt, bitte neu inventarisieren"
+            )
+
+        status.restarting = True
+        self.async_update_listeners()
+        try:
+            conn = self._connection_factory()
+            async with conn:
+                await conn.async_restart_container(name)
+        finally:
+            status.restarting = False
+            self.async_update_listeners()
 
     async def _async_update_data(self) -> dict[str, ContainerUpdateStatus]:
         await self._async_check_all()

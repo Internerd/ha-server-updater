@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from collections.abc import Callable
+from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -13,6 +14,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -25,6 +27,7 @@ from .const import (
     DEFAULT_USE_SUDO,
     DOMAIN,
     MAX_REBOOT_PACKAGES_IN_ISSUE,
+    REBOOT_REFRESH_DELAY,
 )
 from .ssh_client import ServerConnection, ServerUpdaterError, UpdateCheckResult
 
@@ -45,6 +48,9 @@ class ServerUpdaterCoordinator(DataUpdateCoordinator[UpdateCheckResult]):
         )
         self.entry = entry
         self.busy = False
+        self.reboot_issue_placeholders: dict[str, str] = {}
+        self._cancel_delayed_refresh: Callable[[], None] | None = None
+        entry.async_on_unload(self._async_cancel_delayed_refresh)
 
     def build_connection(self) -> ServerConnection:
         data = self.entry.data
@@ -76,27 +82,41 @@ class ServerUpdaterCoordinator(DataUpdateCoordinator[UpdateCheckResult]):
         return f"reboot_required_{self.entry.entry_id}"
 
     def _async_update_reboot_issue(self, result: UpdateCheckResult) -> None:
-        """Show a pending reboot under Settings > Repairs, alongside other system notices."""
-        if not result.reboot_required:
+        """Show a pending reboot under Settings > Repairs, alongside other system notices.
+
+        The issue is fixable: its repair flow reboots the server (see repairs.py).
+        """
+        if not result.any_reboot_required:
             ir.async_delete_issue(self.hass, DOMAIN, self.reboot_issue_id)
             return
 
+        reasons = []
+        if result.kernel_reboot_required:
+            reasons.append(
+                f"Neuer Kernel {result.newest_kernel} installiert, "
+                f"aktiv ist noch {result.running_kernel}"
+            )
         packages = result.reboot_required_packages
-        package_text = ", ".join(packages[:MAX_REBOOT_PACKAGES_IN_ISSUE])
-        if len(packages) > MAX_REBOOT_PACKAGES_IN_ISSUE:
-            package_text += f" (+{len(packages) - MAX_REBOOT_PACKAGES_IN_ISSUE})"
+        if packages:
+            package_text = ", ".join(packages[:MAX_REBOOT_PACKAGES_IN_ISSUE])
+            if len(packages) > MAX_REBOOT_PACKAGES_IN_ISSUE:
+                package_text += f" (+{len(packages) - MAX_REBOOT_PACKAGES_IN_ISSUE})"
+            reasons.append(f"Pakete: {package_text}")
+
+        self.reboot_issue_placeholders = {
+            "name": self.entry.title,
+            "reason": "; ".join(reasons) or "-",
+        }
         ir.async_create_issue(
             self.hass,
             DOMAIN,
             self.reboot_issue_id,
-            is_fixable=False,
+            data={"entry_id": self.entry.entry_id},
+            is_fixable=True,
             is_persistent=False,
             severity=ir.IssueSeverity.WARNING,
             translation_key="reboot_required",
-            translation_placeholders={
-                "name": self.entry.title,
-                "packages": package_text or "-",
-            },
+            translation_placeholders=self.reboot_issue_placeholders,
         )
 
     async def async_apply_updates(self, reboot: bool) -> None:
@@ -121,4 +141,50 @@ class ServerUpdaterCoordinator(DataUpdateCoordinator[UpdateCheckResult]):
             self.busy = False
             self.async_update_listeners()
 
-        await self.async_request_refresh()
+        if reboot:
+            self._async_schedule_refresh_after_reboot()
+        else:
+            await self.async_request_refresh()
+
+    async def async_reboot(self) -> None:
+        """Reboot the server without installing updates first."""
+        if self.busy:
+            raise ServerUpdaterError(
+                f"Auf {self.entry.title} läuft bereits ein Vorgang, bitte später erneut versuchen"
+            )
+
+        self.busy = True
+        self.async_update_listeners()
+        try:
+            async with self.build_connection() as conn:
+                await conn.async_reboot()
+        except ServerUpdaterError:
+            _LOGGER.exception("Neustart von %s fehlgeschlagen", self.entry.title)
+            raise
+        finally:
+            self.busy = False
+            self.async_update_listeners()
+
+        _LOGGER.info("Neustart von %s ausgelöst", self.entry.title)
+        self._async_schedule_refresh_after_reboot()
+
+    def _async_schedule_refresh_after_reboot(self) -> None:
+        """Re-check the server once it had time to come back up.
+
+        Refreshing right away would hit the shutting-down server and either
+        fail or still report the pre-reboot state.
+        """
+        self._async_cancel_delayed_refresh()
+
+        async def _async_refresh(_now: datetime) -> None:
+            self._cancel_delayed_refresh = None
+            await self.async_request_refresh()
+
+        self._cancel_delayed_refresh = async_call_later(
+            self.hass, REBOOT_REFRESH_DELAY, _async_refresh
+        )
+
+    def _async_cancel_delayed_refresh(self) -> None:
+        if self._cancel_delayed_refresh is not None:
+            self._cancel_delayed_refresh()
+            self._cancel_delayed_refresh = None

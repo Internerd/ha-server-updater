@@ -11,8 +11,6 @@ from homeassistant.components.update import UpdateEntity, UpdateEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -20,7 +18,12 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import ServerUpdaterCoordinator
 from .docker_coordinator import ContainerCoordinator, ContainerUpdateStatus
-from .entity import ServerUpdaterEntity
+from .entity import (
+    ServerUpdaterEntity,
+    async_remove_stale_containers,
+    container_device_id,
+    container_device_info,
+)
 from .ssh_client import ServerUpdaterError, UpdateCheckResult
 
 # HA truncates release_summary at 255 characters.
@@ -28,10 +31,6 @@ MAX_RELEASE_SUMMARY = 255
 
 ATTR_IMAGE = "image"
 ATTR_COMPOSE_SERVICE = "compose_service"
-
-
-def _container_unique_id(entry: ConfigEntry, name: str) -> str:
-    return f"{entry.entry_id}_docker_{name}"
 
 
 async def async_setup_entry(
@@ -48,7 +47,13 @@ async def async_setup_entry(
         # Remove stale entities/devices first, so that replacements don't get
         # an entity_id suffix (_2, _3, ...) while the old one is still
         # registered.
-        _remove_stale(hass, entry, {_container_unique_id(entry, n) for n in tracked})
+        async_remove_stale_containers(
+            hass,
+            entry,
+            "update",
+            {container_device_id(entry, n) for n in tracked},
+            {container_device_id(entry, n) for n in coordinator.containers},
+        )
         known_names.intersection_update(tracked)
 
         new_entities = [
@@ -66,34 +71,6 @@ async def async_setup_entry(
     # against, so leave the registry alone until the next (manual) rescan.
     if coordinator.inventory_loaded:
         _sync_entities()
-
-
-def _remove_stale(hass: HomeAssistant, entry: ConfigEntry, keep_unique_ids: set[str]) -> None:
-    """Remove container entities and devices of this entry not in keep_unique_ids.
-
-    Also cleans up leftovers from earlier versions, which keyed containers by
-    their (non-stable) container ID.
-    """
-    prefix = f"{entry.entry_id}_docker_"
-
-    entity_registry = er.async_get(hass)
-    for entity_entry in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
-        if (
-            entity_entry.domain == "update"
-            and entity_entry.unique_id.startswith(prefix)
-            and entity_entry.unique_id not in keep_unique_ids
-        ):
-            entity_registry.async_remove(entity_entry.entity_id)
-
-    device_registry = dr.async_get(hass)
-    for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
-        container_ids = {
-            identifier
-            for domain, identifier in device.identifiers
-            if domain == DOMAIN and identifier.startswith(prefix)
-        }
-        if container_ids and not container_ids & keep_unique_ids:
-            device_registry.async_remove_device(device.id)
 
 
 class SystemUpdateEntity(ServerUpdaterEntity, UpdateEntity):
@@ -196,7 +173,7 @@ class ContainerUpdateEntity(CoordinatorEntity[ContainerCoordinator], UpdateEntit
         super().__init__(coordinator)
         self._entry = entry
         self._container_name = name
-        self._attr_unique_id = _container_unique_id(entry, name)
+        self._attr_unique_id = container_device_id(entry, name)
 
     @property
     def _status(self) -> ContainerUpdateStatus | None:
@@ -210,13 +187,8 @@ class ContainerUpdateEntity(CoordinatorEntity[ContainerCoordinator], UpdateEntit
     @property
     def device_info(self) -> DeviceInfo:
         status = self._status
-        model = status.container.image_ref if status else None
-        return DeviceInfo(
-            identifiers={(DOMAIN, _container_unique_id(self._entry, self._container_name))},
-            name=self._container_name,
-            manufacturer="Docker",
-            model=model,
-            via_device=(DOMAIN, self._entry.entry_id),
+        return container_device_info(
+            self._entry, self._container_name, status.container.image_ref if status else None
         )
 
     @property

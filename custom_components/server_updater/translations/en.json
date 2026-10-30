@@ -49,8 +49,14 @@
       "update_and_reboot": {
         "name": "Update and reboot"
       },
+      "reboot": {
+        "name": "Reboot"
+      },
       "rescan_containers": {
         "name": "Rescan containers"
+      },
+      "restart_container": {
+        "name": "Restart"
       }
     },
     "update": {
@@ -62,7 +68,18 @@
   "issues": {
     "reboot_required": {
       "title": "{name}: reboot required",
-      "description": "The server **{name}** needs to be rebooted for installed updates to take effect.\n\nPackages requiring it: {packages}\n\nReboot e.g. via the server's \"Update and reboot\" button or manually. This notice disappears with the next poll once no reboot is pending anymore."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Reboot {name}",
+            "description": "The server **{name}** needs to be rebooted for installed updates to take effect.\n\nReason: {reason}\n\nPressing **Submit** reboots the server now (without installing updates first). Services, containers and – on Proxmox VE – VMs/LXCs are unavailable meanwhile.\n\nThe server is checked again after about three minutes; if a reboot is still required then, this notice reappears."
+          }
+        },
+        "abort": {
+          "not_loaded": "The integration for this server is not loaded.",
+          "reboot_failed": "Reboot failed: {error}"
+        }
+      }
     }
   }
 }

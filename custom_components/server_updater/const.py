@@ -26,6 +26,10 @@ CONNECT_TIMEOUT = 15
 COMMAND_TIMEOUT = 60
 UPDATE_TIMEOUT = 1800
 REBOOT_TIMEOUT = 20
+# After a reboot, wait before re-checking the server so the check doesn't
+# run against the still shutting-down (or not yet booted) system.
+REBOOT_REFRESH_DELAY = 180
+CONTAINER_RESTART_TIMEOUT = 180
 # Wait before retrying a dist-upgrade whose package downloads failed, giving
 # a mirror that is mid-sync a moment to catch up.
 APT_FETCH_RETRY_DELAY = 30
@@ -35,3 +39,5 @@ MAX_PACKAGE_ATTRIBUTE = 50
 MAX_REBOOT_PACKAGES_IN_ISSUE = 10
 
 ATTR_REBOOT_PACKAGES = "reboot_required_packages"
+ATTR_RUNNING_KERNEL = "running_kernel"
+ATTR_NEWEST_KERNEL = "newest_kernel"
