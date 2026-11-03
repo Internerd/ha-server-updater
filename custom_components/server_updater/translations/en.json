@@ -15,14 +15,48 @@
           "use_sudo": "Run commands with sudo",
           "sudo_password": "Sudo password (leave empty for NOPASSWD or root login)"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure {name}",
+        "description": "Change address, credentials or sudo settings. **Leave the password, key and passphrase fields empty to keep the stored values.**\n\nIf the server's SSH host key changed (e.g. the new IP points to another machine, or the server was reinstalled), its fingerprint is shown and must be confirmed before any credentials are sent.",
+        "data": {
+          "name": "Name",
+          "host": "Host / IP address",
+          "port": "SSH port",
+          "username": "Username",
+          "password": "SSH password (optional if a key is used)",
+          "private_key": "Private SSH key (optional if a password is used)",
+          "private_key_passphrase": "Key passphrase (only if the key has one)",
+          "use_sudo": "Run commands with sudo",
+          "sudo_password": "Sudo password (leave empty for NOPASSWD or root login)",
+          "accept_new_host_key": "Trust the new host key (fingerprint verified)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "{name}: renew login",
+        "description": "Connecting to **{host}** failed because the login was rejected or the SSH host key changed. Please check the credentials. **Empty password, key and passphrase fields keep the stored values.**",
+        "data": {
+          "username": "Username",
+          "password": "SSH password (optional if a key is used)",
+          "private_key": "Private SSH key (optional if a password is used)",
+          "private_key_passphrase": "Key passphrase (only if the key has one)",
+          "use_sudo": "Run commands with sudo",
+          "sudo_password": "Sudo password (leave empty for NOPASSWD or root login)",
+          "accept_new_host_key": "Trust the new host key (fingerprint verified)"
+        }
       }
     },
     "error": {
       "cannot_connect": "Failed to connect: {error}",
-      "auth_required": "Please provide either a password or a private key."
+      "auth_required": "Please provide either a password or a private key.",
+      "invalid_auth": "Login rejected: {error}",
+      "host_key_changed": "The server's SSH host key has changed. New fingerprint: {fingerprint}. Compare it on the server with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` (or the matching key type) and only if it matches tick \"Trust the new host key\" and submit again.",
+      "already_configured": "Another entry already uses this host, port and user."
     },
     "abort": {
-      "already_configured": "This server is already configured."
+      "already_configured": "This server is already configured.",
+      "reconfigure_successful": "The server has been reconfigured.",
+      "reauth_successful": "The login has been renewed."
     }
   },
   "options": {

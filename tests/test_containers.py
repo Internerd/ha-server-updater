@@ -160,6 +160,6 @@ async def test_compose_update(hass, servers, registry) -> None:
 
     await hass.services.async_call("update", "install", {"entity_id": "update.caddy"}, blocking=True)
     await hass.async_block_till_done()
-    assert fake.commands_matching(r"docker compose --project-directory '/srv/caddy' -f '/srv/caddy/compose.yml' pull caddy")
+    assert fake.commands_matching(r"docker compose --project-directory /srv/caddy -f /srv/caddy/compose.yml pull caddy")
     assert hass.states.get("update.caddy").state == STATE_OFF
     assert [(e.data["action"], e.data["success"]) for e in events] == [("container_update", True)]

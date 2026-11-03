@@ -15,6 +15,10 @@ CONF_SUDO_PASSWORD = "sudo_password"
 CONF_REFRESH_APT_CACHE = "refresh_apt_cache"
 CONF_SCAN_INTERVAL_MINUTES = "scan_interval_minutes"
 CONF_NOTIFY_ON_FAILURE = "notify_on_failure"
+# The server's pinned SSH host key (OpenSSH public key format).
+CONF_HOST_KEY = "host_key"
+# Config flow only: confirm a changed host key shown to the user.
+CONF_ACCEPT_HOST_KEY = "accept_new_host_key"
 
 DEFAULT_PORT = 22
 DEFAULT_USE_SUDO = True

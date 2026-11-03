@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import shlex
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import asyncssh
@@ -36,8 +37,48 @@ class ServerConnectionError(ServerUpdaterError):
     """Raised when the SSH connection cannot be established."""
 
 
+class ServerAuthError(ServerConnectionError):
+    """Raised when the server rejects the login credentials."""
+
+
+class ServerHostKeyError(ServerConnectionError):
+    """Raised when the server's host key doesn't match the pinned one.
+
+    Either the server was reinstalled / its address now points to another
+    machine, or someone is intercepting the connection. Credentials are
+    never sent in that case: host key verification happens before
+    authentication.
+    """
+
+
 class ServerCommandError(ServerUpdaterError):
     """Raised when a remote command fails."""
+
+
+def host_key_fingerprint(host_key: str) -> str:
+    """SHA256 fingerprint of an OpenSSH public key, as `ssh-keygen -l` shows it."""
+    return asyncssh.import_public_key(host_key).get_fingerprint("sha256")
+
+
+async def async_fetch_host_key(host: str, port: int) -> str:
+    """Return the host key a server presents, without authenticating.
+
+    Used to show the user the fingerprint of a changed host key so they can
+    decide whether to trust it - no credentials are sent.
+    """
+    try:
+        key = await asyncio.wait_for(
+            asyncssh.get_server_host_key(host, int(port)), timeout=CONNECT_TIMEOUT
+        )
+    except asyncio.TimeoutError as err:
+        raise ServerConnectionError(
+            f"Zeitüberschreitung beim Verbinden mit {host}:{port}"
+        ) from err
+    except (asyncssh.Error, OSError) as err:
+        raise ServerConnectionError(f"Verbindung zu {host} fehlgeschlagen: {err}") from err
+    if key is None:
+        raise ServerConnectionError(f"{host} hat keinen Hostschlüssel geliefert")
+    return key.export_public_key("openssh").decode().strip()
 
 
 @dataclass
@@ -137,7 +178,16 @@ class ServerConnection:
         use_sudo: bool = True,
         sudo_password: str | None = None,
         refresh_apt_cache: bool = True,
+        host_key: str | None = None,
+        on_host_key_learned: Callable[[str], None] | None = None,
     ) -> None:
+        """Set up a connection.
+
+        host_key is the server's pinned OpenSSH public key; the connection is
+        refused if the server presents a different one. Without a pinned key
+        (first contact), any key is accepted and handed to
+        on_host_key_learned so it can be pinned from then on.
+        """
         self._host = host
         self._port = port
         self._username = username
@@ -147,6 +197,10 @@ class ServerConnection:
         self._use_sudo = use_sudo
         self._sudo_password = sudo_password
         self._refresh_apt_cache = refresh_apt_cache
+        self._host_key = host_key
+        self._on_host_key_learned = on_host_key_learned
+        # The host key the server presented on the last connect.
+        self.server_host_key: str | None = None
         self._conn: asyncssh.SSHClientConnection | None = None
 
     async def __aenter__(self) -> "ServerConnection":
@@ -179,6 +233,18 @@ class ServerConnection:
                     "-----BEGIN...-----/-----END...----- Zeilen."
                 ) from err
 
+        if self._host_key:
+            try:
+                pinned = asyncssh.import_public_key(self._host_key)
+            except (asyncssh.KeyImportError, ValueError) as err:
+                raise ServerHostKeyError(
+                    f"Gespeicherter Hostschlüssel für {self._host} ist ungültig ({err})"
+                ) from err
+            # Trusted host keys, trusted CA keys, revoked keys.
+            known_hosts: object = ([pinned], [], [])
+        else:
+            known_hosts = None
+
         try:
             self._conn = await asyncio.wait_for(
                 asyncssh.connect(
@@ -187,7 +253,11 @@ class ServerConnection:
                     username=self._username,
                     password=self._password or None,
                     client_keys=client_keys,
-                    known_hosts=None,
+                    known_hosts=known_hosts,
+                    # Only use what's configured in the integration: no
+                    # ~/.ssh/config, keys or agent of the Home Assistant host.
+                    agent_path=None,
+                    config=None,
                 ),
                 timeout=CONNECT_TIMEOUT,
             )
@@ -195,8 +265,25 @@ class ServerConnection:
             raise ServerConnectionError(
                 f"Zeitüberschreitung beim Verbinden mit {self._host}:{self._port}"
             ) from err
+        except asyncssh.HostKeyNotVerifiable as err:
+            raise ServerHostKeyError(
+                f"Hostschlüssel von {self._host} stimmt nicht mit dem gespeicherten "
+                "überein. Wurde der Server neu installiert oder hat sich die "
+                "Adresse geändert, bitte die Integration neu konfigurieren."
+            ) from err
+        except asyncssh.PermissionDenied as err:
+            raise ServerAuthError(
+                f"Anmeldung an {self._host} als {self._username} abgelehnt"
+            ) from err
         except (asyncssh.Error, OSError) as err:
             raise ServerConnectionError(f"Verbindung zu {self._host} fehlgeschlagen: {err}") from err
+
+        server_key = self._conn.get_server_host_key()
+        self.server_host_key = (
+            server_key.export_public_key("openssh").decode().strip() if server_key else None
+        )
+        if not self._host_key and self.server_host_key and self._on_host_key_learned:
+            self._on_host_key_learned(self.server_host_key)
 
     async def close(self) -> None:
         if self._conn is not None:
@@ -527,7 +614,7 @@ class ServerConnection:
             return []
 
         inspect_result = await self._run(
-            f"docker inspect {' '.join(container_ids)}", use_sudo=True
+            f"docker inspect {' '.join(shlex.quote(cid) for cid in container_ids)}", use_sudo=True
         )
         try:
             containers_raw = json.loads(str(inspect_result.stdout or "[]"))
@@ -568,7 +655,7 @@ class ServerConnection:
         return containers
 
     async def _async_inspect_docker_image(self, image_ref: str) -> dict:
-        result = await self._run(f"docker image inspect {image_ref}", use_sudo=True)
+        result = await self._run(f"docker image inspect {shlex.quote(image_ref)}", use_sudo=True)
         if result.exit_status != 0:
             return {}
         try:
@@ -591,8 +678,10 @@ class ServerConnection:
         """Check whether all given absolute paths exist on the server."""
         if not paths:
             return False
-        check = " && ".join(f"test -f '{path}'" for path in paths)
-        result = await self._run(check, use_sudo=True)
+        # Run all tests in one sudo'ed shell: with a bare "a && b" only the
+        # first command would run under sudo.
+        check = " && ".join(f"test -f {shlex.quote(path)}" for path in paths)
+        result = await self._run(f"sh -c {shlex.quote(check)}", use_sudo=True)
         return result.exit_status == 0
 
     async def async_apply_compose_update(
@@ -604,8 +693,11 @@ class ServerConnection:
         compose files/service, so the original volumes/networks/env are
         preserved instead of being reconstructed by hand.
         """
-        file_args = " ".join(f"-f '{path}'" for path in config_files)
-        project_dir_arg = f"--project-directory '{working_dir}' " if working_dir else ""
+        file_args = " ".join(f"-f {shlex.quote(path)}" for path in config_files)
+        project_dir_arg = (
+            f"--project-directory {shlex.quote(working_dir)} " if working_dir else ""
+        )
+        service = shlex.quote(service)
 
         pull = await self._run(
             f"docker compose {project_dir_arg}{file_args} pull {service}",

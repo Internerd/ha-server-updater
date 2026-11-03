@@ -6,6 +6,45 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-03
+
+### Hinzugefügt
+
+- **Neu konfigurieren**: Host/IP, Port, Name, Benutzer, Passwort,
+  privater Schlüssel, Passphrase und sudo-Einstellungen lassen sich über
+  „Neu konfigurieren“ ändern, ohne den Server zu löschen. Leere
+  Passwort-/Schlüsselfelder behalten die gespeicherten Werte; die Verbindung
+  wird vor dem Speichern getestet.
+- **Erneute Authentifizierung**: Wird die Anmeldung abgelehnt oder hat sich
+  der Hostschlüssel geändert, startet Home Assistant einen
+  Reauth-Dialog, statt den Server nur als nicht verfügbar zu zeigen.
+
+### Sicherheit
+
+- **SSH-Hostschlüssel werden jetzt geprüft.** Bisher wurde jeder
+  Hostschlüssel akzeptiert, wodurch ein Angreifer im Netzwerk
+  (Man-in-the-Middle) Passwort und Sudo-Passwort hätte abgreifen können.
+  Der Schlüssel wird beim ersten Verbinden gespeichert (bestehende Einträge
+  beim ersten Abruf nach dem Update); ein geänderter Schlüssel muss mit
+  angezeigtem Fingerabdruck ausdrücklich bestätigt werden, bevor
+  Zugangsdaten gesendet werden.
+- SSH-Verbindungen nutzen nur noch die in der Integration hinterlegten
+  Zugangsdaten – keine Schlüssel, kein SSH-Agent und keine `~/.ssh/config`
+  des Home-Assistant-Hosts.
+- Container-IDs, Image-Namen, Compose-Dateien/-Verzeichnisse und
+  Compose-Dienstnamen (stammen aus Labels auf dem Zielserver) werden mit
+  `shlex.quote` maskiert, statt in einfache Anführungszeichen gesetzt bzw.
+  unmaskiert übernommen zu werden.
+- Registry-Auth-Endpunkte (`WWW-Authenticate: realm`) werden nur noch über
+  HTTPS angefragt.
+
+### Behoben
+
+- Die Prüfung, ob Compose-Dateien existieren, lief bei mehreren Dateien
+  nur für die erste mit sudo.
+- Optionsänderungen laden den Eintrag weiterhin neu, reine Datenänderungen
+  (z. B. das Speichern des Hostschlüssels) nicht mehr.
+
 ## [0.6.0] - 2026-10-30
 
 ### Hinzugefügt
@@ -201,7 +240,8 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 - `button` zum Aktualisieren sowie Aktualisieren + Neustarten
 - HACS-Kompatibilität (`hacs.json`, versioniertes `manifest.json`)
 
-[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Internerd/ha-server-updater/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Internerd/ha-server-updater/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Internerd/ha-server-updater/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/Internerd/ha-server-updater/compare/v0.4.0...v0.4.1

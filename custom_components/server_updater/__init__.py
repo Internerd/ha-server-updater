@@ -60,6 +60,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "apt": coordinator,
         "docker": docker_coordinator,
+        # To tell option changes (reload) from data changes such as pinning
+        # the host key (no reload needed).
+        "options": dict(entry.options),
     }
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
@@ -98,4 +101,7 @@ def _async_remove_legacy_entities(hass: HomeAssistant, entry: ConfigEntry) -> No
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload the entry when options change."""
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if data is not None and data.get("options") == dict(entry.options):
+        return
     await hass.config_entries.async_reload(entry.entry_id)

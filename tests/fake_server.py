@@ -13,6 +13,8 @@ import shlex
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 
+import asyncssh
+
 
 @dataclass
 class FakeContainer:
@@ -62,6 +64,10 @@ class FakeServer:
         self.containers: list[FakeContainer] = []
         self.compose_files: set[str] = set()
         self.reachable = True
+        # SSH host key; replace it to simulate a reinstalled/other machine.
+        self.host_key = new_host_key()
+        # Accepted login password; None accepts any credentials.
+        self.login_password: str | None = None
         # Server ignores the reboot command (e.g. blocked by a systemd inhibitor).
         self.reboot_ignored = False
         # Server doesn't come back after a reboot.
@@ -127,7 +133,7 @@ class FakeServer:
             (r"docker ps -a --format '\{\{\.Names\}\}\t\{\{\.State\}\}\t\{\{\.Status\}\}'", self._docker_states),
             (r"docker (restart|stop|start) (.+)", self._docker_action),
             (r"docker image prune -f", lambda m: _ok("Deleted Images:\nTotal reclaimed space: 1.2GB\n")),
-            (r"test -f .*", self._test_files),
+            (r"sh -c (.+)", self._test_files),
             (r"docker compose (.+) (pull|up -d) (\S+)", self._compose),
         ]
 
@@ -239,7 +245,10 @@ class FakeServer:
         return _ok(name)
 
     def _test_files(self, m):
-        paths = re.findall(r"test -f '([^']+)'", m.group(0))
+        script = shlex.split(m.group(1))[0]
+        tokens = shlex.split(script)
+        assert all(t in ("test", "-f", "&&") or t.startswith("/") for t in tokens), script
+        paths = [tokens[i + 1] for i, t in enumerate(tokens) if t == "-f"]
         return _ok() if all(p in self.compose_files for p in paths) else _result(1)
 
     def _compose(self, m):
@@ -248,6 +257,14 @@ class FakeServer:
                 if c.labels.get("com.docker.compose.service") == m.group(3):
                     c.digest = "sha256:" + "b" * 64
         return _ok()
+
+
+def new_host_key() -> asyncssh.SSHKey:
+    return asyncssh.generate_private_key("ssh-ed25519")
+
+
+def public_key(key: asyncssh.SSHKey) -> str:
+    return key.export_public_key("openssh").decode().strip()
 
 
 def _ok(stdout: str = "") -> SimpleNamespace:

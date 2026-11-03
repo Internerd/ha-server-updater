@@ -15,14 +15,48 @@
           "use_sudo": "Befehle mit sudo ausführen",
           "sudo_password": "Sudo-Passwort (leer lassen bei NOPASSWD oder root-Login)"
         }
+      },
+      "reconfigure": {
+        "title": "{name} neu konfigurieren",
+        "description": "Adresse, Anmeldedaten oder sudo-Einstellungen ändern. **Passwort-, Schlüssel- und Passphrase-Felder leer lassen, um die gespeicherten Werte zu behalten.**\n\nHat sich der SSH-Hostschlüssel des Servers geändert (z. B. neue IP zeigt auf einen anderen Rechner oder Neuinstallation), wird sein Fingerabdruck angezeigt und muss bestätigt werden, bevor Anmeldedaten gesendet werden.",
+        "data": {
+          "name": "Name",
+          "host": "Host / IP-Adresse",
+          "port": "SSH-Port",
+          "username": "Benutzername",
+          "password": "SSH-Passwort (optional, falls kein Schlüssel verwendet wird)",
+          "private_key": "Privater SSH-Schlüssel (optional, falls kein Passwort verwendet wird)",
+          "private_key_passphrase": "Passphrase des Schlüssels (nur falls vorhanden)",
+          "use_sudo": "Befehle mit sudo ausführen",
+          "sudo_password": "Sudo-Passwort (leer lassen bei NOPASSWD oder root-Login)",
+          "accept_new_host_key": "Neuen Hostschlüssel vertrauen (Fingerabdruck geprüft)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "{name}: Anmeldung erneuern",
+        "description": "Die Verbindung zu **{host}** ist fehlgeschlagen, weil die Anmeldung abgelehnt wurde oder sich der SSH-Hostschlüssel geändert hat. Bitte die Anmeldedaten prüfen. **Leere Passwort-, Schlüssel- und Passphrase-Felder behalten die gespeicherten Werte.**",
+        "data": {
+          "username": "Benutzername",
+          "password": "SSH-Passwort (optional, falls kein Schlüssel verwendet wird)",
+          "private_key": "Privater SSH-Schlüssel (optional, falls kein Passwort verwendet wird)",
+          "private_key_passphrase": "Passphrase des Schlüssels (nur falls vorhanden)",
+          "use_sudo": "Befehle mit sudo ausführen",
+          "sudo_password": "Sudo-Passwort (leer lassen bei NOPASSWD oder root-Login)",
+          "accept_new_host_key": "Neuen Hostschlüssel vertrauen (Fingerabdruck geprüft)"
+        }
       }
     },
     "error": {
       "cannot_connect": "Verbindung fehlgeschlagen: {error}",
-      "auth_required": "Bitte entweder ein Passwort oder einen privaten Schlüssel angeben."
+      "auth_required": "Bitte entweder ein Passwort oder einen privaten Schlüssel angeben.",
+      "invalid_auth": "Anmeldung abgelehnt: {error}",
+      "host_key_changed": "Der SSH-Hostschlüssel des Servers hat sich geändert. Neuer Fingerabdruck: {fingerprint}. Bitte auf dem Server mit `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` (bzw. passender Schlüsseltyp) vergleichen und nur bei Übereinstimmung „Neuen Hostschlüssel vertrauen“ ankreuzen und erneut absenden.",
+      "already_configured": "Ein anderer Eintrag nutzt bereits diesen Host, Port und Benutzer."
     },
     "abort": {
-      "already_configured": "Dieser Server ist bereits konfiguriert."
+      "already_configured": "Dieser Server ist bereits konfiguriert.",
+      "reconfigure_successful": "Der Server wurde neu konfiguriert.",
+      "reauth_successful": "Die Anmeldung wurde erneuert."
     }
   },
   "options": {

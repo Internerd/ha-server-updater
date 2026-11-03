@@ -1,16 +1,16 @@
 """Fixtures: Home Assistant test harness plus simulated servers."""
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import asyncssh
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.server_updater.const import DOMAIN
-from custom_components.server_updater.ssh_client import (
-    ServerConnection,
-    ServerConnectionError,
-)
+from custom_components.server_updater.ssh_client import ServerConnection
 
 from .fake_server import FakeServer
 
@@ -36,11 +36,30 @@ def registry() -> dict[str, str]:
 
 @pytest.fixture(autouse=True)
 def patch_ssh(servers, registry):
-    async def _connect(self):
-        server = servers[self._host]
-        if not server.reachable:
-            raise ServerConnectionError(f"Zeitüberschreitung beim Verbinden mit {self._host}:22")
-        self._conn = object()
+    def _server(host):
+        server = servers.get(host)
+        if server is None or not server.reachable:
+            raise asyncio.TimeoutError
+        return server
+
+    async def _asyncssh_connect(host, port, *, username, password, client_keys, known_hosts, **kwargs):
+        """Stands in for asyncssh.connect: host key check first, then login."""
+        # Nothing from the Home Assistant host's ~/.ssh or agent is used.
+        assert kwargs.get("agent_path", ()) is None and kwargs.get("config", ()) is None
+        server = _server(host)
+        presented = server.host_key.export_public_key("openssh")
+        if known_hosts is not None and not any(
+            key.export_public_key("openssh") == presented for key in known_hosts[0]
+        ):
+            raise asyncssh.HostKeyNotVerifiable("Host key is not trusted")
+        if server.login_password is not None and password != server.login_password:
+            raise asyncssh.PermissionDenied("Permission denied")
+        return SimpleNamespace(
+            get_server_host_key=lambda: server.host_key.convert_to_public()
+        )
+
+    async def _get_server_host_key(host, port, **kwargs):
+        return _server(host).host_key.convert_to_public()
 
     async def _close(self):
         self._conn = None
@@ -55,7 +74,8 @@ def patch_ssh(servers, registry):
         return latest != current_digest, latest
 
     with (
-        patch.object(ServerConnection, "_connect", _connect),
+        patch("asyncssh.connect", _asyncssh_connect),
+        patch("asyncssh.get_server_host_key", _get_server_host_key),
         patch.object(ServerConnection, "close", _close),
         patch.object(ServerConnection, "_run", _run),
         patch(

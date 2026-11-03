@@ -20,7 +20,10 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from homeassistant.exceptions import ConfigEntryAuthFailed
+
 from .const import (
+    CONF_HOST_KEY,
     CONF_PRIVATE_KEY,
     CONF_PRIVATE_KEY_PASSPHRASE,
     CONF_REFRESH_APT_CACHE,
@@ -36,7 +39,13 @@ from .const import (
     SERVICE_RESTART_EXCLUDE_PATTERNS,
 )
 from .reporting import async_report
-from .ssh_client import ServerConnection, ServerUpdaterError, UpdateCheckResult
+from .ssh_client import (
+    ServerAuthError,
+    ServerConnection,
+    ServerHostKeyError,
+    ServerUpdaterError,
+    UpdateCheckResult,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,12 +96,26 @@ class ServerUpdaterCoordinator(DataUpdateCoordinator[UpdateCheckResult]):
             refresh_apt_cache=self.entry.options.get(
                 CONF_REFRESH_APT_CACHE, DEFAULT_REFRESH_APT_CACHE
             ),
+            host_key=data.get(CONF_HOST_KEY),
+            on_host_key_learned=self._async_pin_host_key,
+        )
+
+    def _async_pin_host_key(self, host_key: str) -> None:
+        """Pin the host key seen on first contact (entries from before 0.7.0)."""
+        if self.entry.data.get(CONF_HOST_KEY):
+            return
+        _LOGGER.info("Hostschlüssel von %s wird ab jetzt geprüft", self.entry.title)
+        self.hass.config_entries.async_update_entry(
+            self.entry, data={**self.entry.data, CONF_HOST_KEY: host_key}
         )
 
     async def _async_update_data(self) -> UpdateCheckResult:
         try:
             async with self.build_connection() as conn:
                 result = await conn.async_check_updates()
+        except (ServerAuthError, ServerHostKeyError) as err:
+            # Starts the reauthentication flow (Settings > Devices & services).
+            raise ConfigEntryAuthFailed(str(err)) from err
         except ServerUpdaterError as err:
             raise UpdateFailed(str(err)) from err
         self._async_update_reboot_issue(result)

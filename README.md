@@ -416,6 +416,41 @@ an und behält alle bereits eingegebenen Werte bei.
 Für jeden weiteren Server die Integration erneut über "Integration hinzufügen"
 einrichten.
 
+### IP-Adresse oder Zugangsdaten ändern
+
+Ändern sich Host/IP, Port, Benutzer, Passwort, Schlüssel oder die
+sudo-Einstellungen, muss der Server nicht gelöscht werden: Einstellungen →
+Geräte & Dienste → Server Updater → beim Eintrag im Menü (⋮)
+**„Neu konfigurieren“**. Felder für Passwort, Schlüssel, Passphrase und
+Sudo-Passwort sind dort leer – **leer lassen behält den gespeicherten Wert**.
+Die Verbindung wird vor dem Speichern getestet; Entitäten, Verlauf und
+Automationen bleiben erhalten.
+
+Wird die Anmeldung später abgelehnt (z. B. Passwort auf dem Server
+geändert), startet Home Assistant automatisch eine **erneute
+Authentifizierung** (Hinweis unter Geräte & Dienste), in der sich die
+Anmeldedaten direkt korrigieren lassen.
+
+### SSH-Hostschlüssel
+
+Beim ersten Verbinden merkt sich die Integration den SSH-Hostschlüssel des
+Servers (Trust on first use, bestehende Einträge beim ersten Abruf nach dem
+Update auf 0.7.0). Danach wird jede Verbindung abgelehnt, deren Hostschlüssel
+abweicht – **bevor** Passwörter übertragen werden. Das schützt vor
+Man-in-the-Middle-Angriffen und davor, Zugangsdaten an einen falschen Rechner
+zu schicken, wenn eine IP neu vergeben wurde.
+
+Hat sich der Schlüssel legitim geändert (Neuinstallation, neue IP zeigt auf
+einen anderen Server), zeigt die erneute Authentifizierung bzw. „Neu
+konfigurieren“ den **Fingerabdruck** des neuen Schlüssels an. Diesen auf dem
+Server vergleichen, z. B.:
+
+```bash
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+und nur bei Übereinstimmung „Neuen Hostschlüssel vertrauen“ ankreuzen.
+
 Über die Optionen des jeweiligen Config Entry lassen sich das Abfrageintervall
 (Standard: 6 Stunden) und ob vor jeder Prüfung `apt-get update` ausgeführt
 werden soll, anpassen.
@@ -466,7 +501,14 @@ passwortlosen Root-Zugriff, statt vollen Sudo-Zugriff.
 - Den sudoers-Eintrag möglichst eng fassen (siehe oben), statt uneingeschränktes
   `NOPASSWD: ALL` zu vergeben.
 - Zugangsdaten werden von Home Assistant wie üblich in der Konfigurations-
-  datenbank gespeichert.
+  datenbank gespeichert. Beim Neu-Konfigurieren werden gespeicherte
+  Passwörter/Schlüssel nicht an die Oberfläche zurückgegeben.
+- Der SSH-Hostschlüssel wird beim ersten Verbinden gespeichert und danach
+  geprüft (siehe [SSH-Hostschlüssel](#ssh-hostschlüssel)). Es werden nur die
+  in der Integration hinterlegten Zugangsdaten verwendet – keine Schlüssel,
+  kein SSH-Agent und keine `~/.ssh/config` des Home-Assistant-Hosts.
+- Werte vom Zielserver (Container-, Image-, Compose- und Dienstnamen) werden
+  vor der Verwendung in Befehlen shell-sicher maskiert.
 
 ## Technischer Hintergrund
 

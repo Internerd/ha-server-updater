@@ -160,7 +160,13 @@ async def _async_discover_auth(
     match = _WWW_AUTHENTICATE_RE.search(challenge)
     if not match:
         raise RegistryError(f"Konnte Auth-Anforderung von {api_host} nicht auswerten")
-    return match.group("realm"), match.group("service")
+    realm = match.group("realm")
+    # The realm comes from the registry's response; only follow it over
+    # HTTPS so a registry can't point Home Assistant at plain-HTTP (e.g.
+    # internal) URLs.
+    if not realm.lower().startswith("https://"):
+        raise RegistryError(f"Auth-Endpunkt von {api_host} ist kein HTTPS: {realm}")
+    return realm, match.group("service")
 
 
 async def async_check_for_update(
