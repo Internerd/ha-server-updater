@@ -163,3 +163,15 @@ async def test_compose_update(hass, servers, registry) -> None:
     assert fake.commands_matching(r"docker compose --project-directory /srv/caddy -f /srv/caddy/compose.yml pull caddy")
     assert hass.states.get("update.caddy").state == STATE_OFF
     assert [(e.data["action"], e.data["success"]) for e in events] == [("container_update", True)]
+
+
+async def test_container_devices_linked_to_server(hass, servers, registry) -> None:
+    from homeassistant.helpers import device_registry as dr
+
+    from custom_components.server_updater.const import DOMAIN
+
+    entry, _ = await setup_server(hass, servers, fake=_docker_server())
+    devices = dr.async_get(hass)
+    server = devices.async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+    caddy = devices.async_get_device(identifiers={(DOMAIN, f"{entry.entry_id}_docker_caddy")})
+    assert caddy.via_device_id == server.id

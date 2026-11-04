@@ -6,6 +6,22 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-11-04
+
+### Behoben
+
+- Button `Dienste neu starten` ist nur noch verfügbar, wenn es Dienste
+  gibt, die er auch neu starten darf. Stehen nur geschützte Dienste wie
+  `dbus.service` oder `systemd-logind.service` aus (dafür ist ein Neustart
+  des Servers nötig), führte ein Druck bisher zu einem Fehler im Log.
+- Container-Geräte werden ab Home Assistant 2026.12 per `via_device_id` mit
+  dem Server verknüpft statt über das veraltete `via_device` (entfällt mit
+  2027.8). Ältere Versionen nutzen weiter `via_device`.
+- Warnung „has an update listener and should use it for scheduling a
+  reload“ beim Neu-Konfigurieren behoben: Optionsänderungen laden den
+  Eintrag jetzt über `OptionsFlowWithReload` neu (ab HA 2025.8), ohne
+  Update-Listener.
+
 ## [0.7.1] - 2026-11-04
 
 ### Behoben
@@ -252,7 +268,8 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 - `button` zum Aktualisieren sowie Aktualisieren + Neustarten
 - HACS-Kompatibilität (`hacs.json`, versioniertes `manifest.json`)
 
-[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/Internerd/ha-server-updater/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Internerd/ha-server-updater/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Internerd/ha-server-updater/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Internerd/ha-server-updater/compare/v0.5.0...v0.6.0

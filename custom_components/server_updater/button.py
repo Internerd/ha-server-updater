@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import ServerUpdaterCoordinator
+from .coordinator import ServerUpdaterCoordinator, split_restartable_services
 from .docker_coordinator import ContainerCoordinator
 from .entity import (
     ContainerEntity,
@@ -141,7 +141,17 @@ class RestartServicesButton(ServerUpdaterEntity, ButtonEntity):
 
     @property
     def available(self) -> bool:
-        return super().available and not self.coordinator.busy
+        """Only pressable if there's something it may restart.
+
+        Services such as dbus or systemd-logind are never restarted by this
+        button (see SERVICE_RESTART_EXCLUDE_PATTERNS); if only those are
+        pending, the server needs a reboot instead.
+        """
+        data = self.coordinator.data
+        safe, _ = split_restartable_services(
+            (data.services_to_restart if data else None) or []
+        )
+        return super().available and not self.coordinator.busy and bool(safe)
 
     async def async_press(self) -> None:
         try:

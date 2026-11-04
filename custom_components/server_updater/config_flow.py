@@ -13,6 +13,14 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow,
 )
+
+try:  # Home Assistant 2025.8+
+    from homeassistant.config_entries import OptionsFlowWithReload as _OptionsFlowBase
+
+    OPTIONS_FLOW_RELOADS = True
+except ImportError:  # pragma: no cover - older Home Assistant
+    _OptionsFlowBase = OptionsFlow
+    OPTIONS_FLOW_RELOADS = False
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PASSWORD, CONF_PORT, CONF_USERNAME
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
@@ -376,7 +384,7 @@ class ServerUpdaterConfigFlow(ConfigFlow, domain=DOMAIN):
         return ServerUpdaterOptionsFlow()
 
 
-class ServerUpdaterOptionsFlow(OptionsFlow):
+class ServerUpdaterOptionsFlow(_OptionsFlowBase):
     """Handle options for an existing server entry."""
 
     async def async_step_init(

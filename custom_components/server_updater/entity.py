@@ -38,16 +38,28 @@ def container_device_id(entry: ConfigEntry, name: str) -> str:
     return f"{entry.entry_id}_docker_{name}"
 
 
+# Home Assistant 2026.12 replaced DeviceInfo's via_device (identifier tuple)
+# with via_device_id (device registry ID); via_device stops working in
+# 2027.8. Older versions only know via_device.
+_HAS_VIA_DEVICE_ID = "via_device_id" in getattr(DeviceInfo, "__dataclass_fields__", {})
+
+
 def container_device_info(
-    entry: ConfigEntry, name: str, image_ref: str | None
+    hass: HomeAssistant, entry: ConfigEntry, name: str, image_ref: str | None
 ) -> DeviceInfo:
-    return DeviceInfo(
-        identifiers={(DOMAIN, container_device_id(entry, name))},
-        name=name,
-        manufacturer="Docker",
-        model=image_ref,
-        via_device=(DOMAIN, entry.entry_id),
-    )
+    info: dict = {
+        "identifiers": {(DOMAIN, container_device_id(entry, name))},
+        "name": name,
+        "manufacturer": "Docker",
+        "model": image_ref,
+    }
+    if _HAS_VIA_DEVICE_ID:
+        server = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+        if server is not None:
+            info["via_device_id"] = server.id
+    else:
+        info["via_device"] = (DOMAIN, entry.entry_id)
+    return DeviceInfo(**info)
 
 
 def async_remove_stale_containers(
@@ -143,5 +155,6 @@ class ContainerEntity(CoordinatorEntity[ContainerCoordinator]):
     def device_info(self) -> DeviceInfo:
         status = self._status
         return container_device_info(
+            self.hass,
             self._entry, self._container_name, status.container.image_ref if status else None
         )

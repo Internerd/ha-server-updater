@@ -67,7 +67,7 @@ async def test_proxmox_with_needrestart_and_docker(hass, servers, registry) -> N
 
 
 async def test_options_flow_has_notify_option(hass, servers) -> None:
-    entry, _ = await setup_server(hass, servers)
+    entry, fake = await setup_server(hass, servers)
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert "notify_on_failure" in result["data_schema"].schema
     result = await hass.config_entries.options.async_configure(
@@ -76,6 +76,10 @@ async def test_options_flow_has_notify_option(hass, servers) -> None:
     )
     await hass.async_block_till_done()
     assert entry.options["notify_on_failure"] is False
+    # Reloaded by the options flow itself, no update listener (deprecated
+    # together with reconfigure/reauth reloads).
+    assert not entry.update_listeners
+    assert len(fake.commands_matching(r"^cat /etc/os-release$")) == 2
 
 
 async def test_unload_cleans_up(hass, servers) -> None:

@@ -7,10 +7,12 @@ from datetime import timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
 
+from .config_flow import OPTIONS_FLOW_RELOADS
 from .const import CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL, DOMAIN, PLATFORMS
 from .coordinator import ServerUpdaterCoordinator
 from .docker_coordinator import ContainerCoordinator
@@ -39,6 +41,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         else DEFAULT_SCAN_INTERVAL
     )
 
+    # Register the server device up front: container devices link to it by
+    # its registry ID, which must exist before any platform adds entities.
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=entry.title,
+        manufacturer="Server Updater",
+    )
+
     coordinator = ServerUpdaterCoordinator(hass, entry, update_interval)
     await coordinator.async_config_entry_first_refresh()
 
@@ -60,12 +71,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "apt": coordinator,
         "docker": docker_coordinator,
-        # To tell option changes (reload) from data changes such as pinning
-        # the host key (no reload needed).
+        # Older Home Assistant only: to tell option changes (reload) from
+        # data changes such as pinning the host key (no reload needed).
         "options": dict(entry.options),
     }
 
-    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    if not OPTIONS_FLOW_RELOADS:
+        # Newer Home Assistant reloads after option changes by itself
+        # (OptionsFlowWithReload) and warns about update listeners when a
+        # reconfigure/reauth flow reloads the entry.
+        entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True

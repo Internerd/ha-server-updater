@@ -37,8 +37,8 @@ async def test_restart_services_button(hass, servers) -> None:
     # Excluded service stays pending (needs a reboot).
     assert hass.states.get("sensor.srv_services_to_restart").state == "1"
 
-    with pytest.raises(HomeAssistantError, match="docker.service"):
-        await hass.services.async_call("button", "press", {"entity_id": "button.srv_restart_services"}, blocking=True)
+    # Only an excluded service left: nothing to press (no error in the log).
+    assert hass.states.get("button.srv_restart_services").state == "unavailable"
 
 
 async def test_update_failure_notification_and_option(hass, servers) -> None:
