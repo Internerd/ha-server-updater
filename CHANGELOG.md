@@ -6,6 +6,18 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-04
+
+### Behoben
+
+- Paket-Updates schlugen mit `sudo: DEBIAN_FRONTEND=noninteractive: command
+  not found` fehl, u. a. mit sudo-rs (Standard ab Ubuntu 25.10). Die
+  Variable stand hinter `--` und wurde dadurch als Befehl ausgeführt; sie
+  wird jetzt vor dem Befehl übergeben.
+- Lehnt sudo das Setzen der Variable ab (z. B. eng gefasste sudoers-Regel
+  nur für `/usr/bin/apt-get` ohne `SETENV`), wird das Update ohne sie
+  ausgeführt statt abzubrechen. Bis dahin wurde nichts installiert.
+
 ## [0.7.0] - 2026-11-03
 
 ### Hinzugefügt
@@ -240,7 +252,8 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 - `button` zum Aktualisieren sowie Aktualisieren + Neustarten
 - HACS-Kompatibilität (`hacs.json`, versioniertes `manifest.json`)
 
-[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/Internerd/ha-server-updater/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Internerd/ha-server-updater/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Internerd/ha-server-updater/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Internerd/ha-server-updater/compare/v0.4.1...v0.5.0

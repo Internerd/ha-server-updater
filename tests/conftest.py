@@ -64,8 +64,8 @@ def patch_ssh(servers, registry):
     async def _close(self):
         self._conn = None
 
-    async def _run(self, command, use_sudo=False, timeout=None):
-        return servers[self._host].run(command, use_sudo=use_sudo)
+    async def _run(self, command, use_sudo=False, timeout=None, env=None):
+        return servers[self._host].run(command, use_sudo=use_sudo, env=env)
 
     async def _check(session, image_ref, current_digest, timeout):
         latest = registry.get(image_ref)

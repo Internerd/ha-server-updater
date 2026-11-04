@@ -129,8 +129,8 @@ async def test_maintenance_full_run(hass, servers, registry, freezer) -> None:
     assert deb.commands_matching("^reboot$")
     assert not ubu.commands_matching("^reboot$")
     # Order on deb: packages, containers, prune, reboot last.
-    order = [c for c in deb.commands if c.startswith(("DEBIAN_FRONTEND", "docker compose", "docker image prune", "reboot"))]
-    assert order[0].startswith("DEBIAN_FRONTEND") and order[-1] == "reboot"
+    order = [c for c in deb.commands if c.startswith(("apt-get -y", "docker compose", "docker image prune", "reboot"))]
+    assert order[0].startswith("apt-get -y") and order[-1] == "reboot"
     assert order.index("docker image prune -f") > max(i for i, c in enumerate(order) if c.startswith("docker compose"))
 
 
@@ -188,3 +188,28 @@ async def test_maintenance_unreachable_server(hass, servers) -> None:
         DOMAIN, "run_maintenance", {}, blocking=True, return_response=True
     )
     assert "nicht erreichbar" in response["servers"][0]["error"]
+
+
+async def test_update_sets_debian_frontend(hass, servers) -> None:
+    fake = FakeServer()
+    fake.add_upgrade("openssl")
+    await setup_server(hass, servers, fake=fake)
+    await hass.services.async_call("button", "press", {"entity_id": "button.srv_update"}, blocking=True)
+    await hass.async_block_till_done()
+    assert [env for cmd, env in fake.env_commands if "dist-upgrade" in cmd] == [
+        {"DEBIAN_FRONTEND": "noninteractive"}
+    ]
+    assert fake.upgradable == []
+
+
+async def test_update_works_when_sudo_rejects_env(hass, servers) -> None:
+    """sudo-rs / restricted sudoers: retry without DEBIAN_FRONTEND instead of failing."""
+    fake = FakeServer()
+    fake.add_upgrade("openssl")
+    fake.sudo_rejects_env = True
+    entry, _ = await setup_server(hass, servers, fake=fake)
+    await hass.services.async_call("button", "press", {"entity_id": "button.srv_update"}, blocking=True)
+    await hass.async_block_till_done()
+    assert fake.upgradable == []
+    assert len(fake.commands_matching(r"dist-upgrade")) == 1
+    assert f"{DOMAIN}_{entry.entry_id}_update" not in notifications(hass)

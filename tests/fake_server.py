@@ -77,7 +77,11 @@ class FakeServer:
         self.update_requests_reboot = False
         # Regex -> (exit status, stderr) for commands that should fail.
         self.failures: dict[str, tuple[int, str]] = {}
+        # sudo refuses VAR=value assignments (restricted sudoers / sudo-rs).
+        self.sudo_rejects_env = False
         self.commands: list[str] = []
+        # (command, env) for commands run with environment variables.
+        self.env_commands: list[tuple[str, dict[str, str]]] = []
         self.sudo_commands: list[str] = []
 
     # --- helpers for tests ------------------------------------------------
@@ -90,7 +94,14 @@ class FakeServer:
 
     # --- command dispatch -------------------------------------------------
 
-    def run(self, command: str, use_sudo: bool = False) -> SimpleNamespace:
+    def run(
+        self, command: str, use_sudo: bool = False, env: dict[str, str] | None = None
+    ) -> SimpleNamespace:
+        if env:
+            self.env_commands.append((command, env))
+            if use_sudo and self.sudo_rejects_env:
+                name, value = next(iter(env.items()))
+                return _result(1, "", f"sudo: {name}={value}: command not found")
         self.commands.append(command)
         if use_sudo:
             self.sudo_commands.append(command)
@@ -125,7 +136,7 @@ class FakeServer:
             (r"hostname -s", lambda m: _ok("pve1")),
             (r"pvesh get /nodes/pve1/(qemu|lxc) --output-format json", self._pvesh_list),
             (r"pvesh get /nodes/pve1/(qemu|lxc)/(\d+)/config --output-format json", self._pvesh_config),
-            (r"DEBIAN_FRONTEND=noninteractive apt-get -y .* dist-upgrade", self._dist_upgrade),
+            (r"apt-get -y .* dist-upgrade", self._dist_upgrade),
             (r"reboot", self._reboot),
             (r"docker ps -a --format '\{\{\.ID\}\}'", self._docker_ps_ids),
             (r"docker inspect (.+)", self._docker_inspect),

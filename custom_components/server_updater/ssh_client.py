@@ -55,6 +55,35 @@ class ServerCommandError(ServerUpdaterError):
     """Raised when a remote command fails."""
 
 
+def build_command(
+    command: str,
+    use_sudo: bool,
+    sudo_password: str | None = None,
+    env: dict[str, str] | None = None,
+) -> tuple[str, str | None]:
+    """Return (shell command, stdin data) for running command, optionally via sudo.
+
+    Environment variables go before the command as VAR=value. With sudo they
+    must come before the command but must not follow "--": sudo-rs (the
+    default sudo on newer Ubuntu releases) treats everything after "--" as
+    the command and would try to run "VAR=value" itself. Commands passed
+    here are built by this module, never raw user input, so leaving out
+    "--" doesn't open up option injection.
+    """
+    assignments = " ".join(
+        f"{name}={shlex.quote(value)}" for name, value in (env or {}).items()
+    )
+    if not use_sudo:
+        return (f"{assignments} {command}" if assignments else command), None
+    if sudo_password:
+        prefix, stdin_data = "sudo -S -p ''", f"{sudo_password}\n"
+    else:
+        prefix, stdin_data = "sudo -n", None
+    if assignments:
+        return f"{prefix} {assignments} {command}", stdin_data
+    return f"{prefix} -- {command}", stdin_data
+
+
 def host_key_fingerprint(host_key: str) -> str:
     """SHA256 fingerprint of an OpenSSH public key, as `ssh-keygen -l` shows it."""
     return asyncssh.import_public_key(host_key).get_fingerprint("sha256")
@@ -201,6 +230,8 @@ class ServerConnection:
         self._on_host_key_learned = on_host_key_learned
         # The host key the server presented on the last connect.
         self.server_host_key: str | None = None
+        # sudo refused DEBIAN_FRONTEND=... once; don't try again.
+        self._env_rejected = False
         self._conn: asyncssh.SSHClientConnection | None = None
 
     async def __aenter__(self) -> "ServerConnection":
@@ -295,20 +326,21 @@ class ServerConnection:
             self._conn = None
 
     async def _run(
-        self, command: str, use_sudo: bool = False, timeout: int = COMMAND_TIMEOUT
+        self,
+        command: str,
+        use_sudo: bool = False,
+        timeout: int = COMMAND_TIMEOUT,
+        env: dict[str, str] | None = None,
     ) -> asyncssh.SSHCompletedProcess:
         if self._conn is None:
             raise ServerConnectionError("Nicht verbunden")
 
-        stdin_data = None
-        if use_sudo and self._use_sudo:
-            if self._sudo_password:
-                full_command = f"sudo -S -p '' -- {command}"
-                stdin_data = f"{self._sudo_password}\n"
-            else:
-                full_command = f"sudo -n -- {command}"
-        else:
-            full_command = command
+        full_command, stdin_data = build_command(
+            command,
+            use_sudo=use_sudo and self._use_sudo,
+            sudo_password=self._sudo_password,
+            env=env,
+        )
 
         try:
             return await asyncio.wait_for(
@@ -582,12 +614,27 @@ class ServerConnection:
             )
 
     async def _async_dist_upgrade(self) -> asyncssh.SSHCompletedProcess:
-        return await self._run(
-            "DEBIAN_FRONTEND=noninteractive apt-get -y "
-            '-o Dpkg::Options::="--force-confold" dist-upgrade',
-            use_sudo=True,
-            timeout=UPDATE_TIMEOUT,
-        )
+        command = 'apt-get -y -o Dpkg::Options::="--force-confold" dist-upgrade'
+        if not self._env_rejected:
+            result = await self._run(
+                command,
+                use_sudo=True,
+                timeout=UPDATE_TIMEOUT,
+                env={"DEBIAN_FRONTEND": "noninteractive"},
+            )
+            if result.exit_status == 0 or not _is_env_rejection(str(result.stderr)):
+                return result
+            # sudo refused to set the variable (restricted sudoers without
+            # SETENV, or a sudo that doesn't support VAR=value). Nothing has
+            # been run yet; apt also runs non-interactively without it, as
+            # there's no terminal and stdin is closed.
+            _LOGGER.info(
+                "sudo auf %s erlaubt kein DEBIAN_FRONTEND (%s), fahre ohne fort",
+                self._host,
+                str(result.stderr).strip(),
+            )
+            self._env_rejected = True
+        return await self._run(command, use_sudo=True, timeout=UPDATE_TIMEOUT)
 
     async def async_list_docker_containers(self) -> list[DockerContainerInfo] | None:
         """List all Docker containers (incl. stopped ones) and their image provenance.
@@ -845,6 +892,16 @@ def _newest_kernel(running: str, installed: list[str]) -> str:
     flavor = _kernel_flavor(running)
     candidates = [k for k in installed if _kernel_flavor(k) == flavor]
     return max([running, *candidates], key=_version_key)
+
+
+def _is_env_rejection(stderr: str) -> bool:
+    """Whether sudo refused a VAR=value assignment instead of running the command."""
+    # Classic sudo: "sorry, you are not allowed to set the following
+    # environment variables: DEBIAN_FRONTEND"; sudo-rs with "--":
+    # "DEBIAN_FRONTEND=noninteractive: command not found".
+    return "DEBIAN_FRONTEND" in stderr and bool(
+        re.search(r"not allowed|not permitted|command not found|environment", stderr, re.I)
+    )
 
 
 def _is_fetch_failure(stderr: str) -> bool:
