@@ -91,3 +91,19 @@ async def test_unload_cleans_up(hass, servers) -> None:
     assert ir.async_get(hass).async_get_issue(DOMAIN, f"reboot_required_{entry.entry_id}")
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert ir.async_get(hass).async_get_issue(DOMAIN, f"reboot_required_{entry.entry_id}") is None
+
+
+async def test_needrestart_entities_appear_once_installed(hass, servers) -> None:
+    entry, fake = await setup_server(hass, servers)
+    assert hass.states.get("sensor.srv_services_to_restart") is None
+
+    fake.needrestart = ["cron.service"]
+    await hass.data[DOMAIN][entry.entry_id]["apt"].async_refresh()
+    await hass.async_block_till_done()
+
+    assert hass.states.get("sensor.srv_services_to_restart").state == "1"
+    assert hass.states.get("button.srv_restart_services").state != STATE_UNAVAILABLE
+    # Added once only, also across further refreshes.
+    await hass.data[DOMAIN][entry.entry_id]["apt"].async_refresh()
+    await hass.async_block_till_done()
+    assert len(hass.states.async_entity_ids("sensor")) == 2

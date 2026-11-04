@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -31,6 +31,43 @@ class ServerUpdaterEntity(CoordinatorEntity[ServerUpdaterCoordinator]):
             manufacturer="Server Updater",
             model=coordinator.data.os_name if coordinator.data else None,
         )
+
+
+def async_add_entities_when(
+    coordinator: ServerUpdaterCoordinator,
+    condition: Callable[[], bool],
+    factory: Callable[[], list[Entity]],
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Add entities now if condition holds, otherwise as soon as it does.
+
+    For optional features detected on the server (e.g. needrestart being
+    installed later), so their entities show up without reloading.
+    """
+    if condition():
+        async_add_entities(factory())
+        return
+
+    remove: Callable[[], None] | None = None
+
+    @callback
+    def _async_check() -> None:
+        nonlocal remove
+        if remove is None or not condition():
+            return
+        remove()
+        remove = None
+        async_add_entities(factory())
+
+    @callback
+    def _async_unload() -> None:
+        nonlocal remove
+        if remove is not None:
+            remove()
+            remove = None
+
+    remove = coordinator.async_add_listener(_async_check)
+    coordinator.entry.async_on_unload(_async_unload)
 
 
 def container_device_id(entry: ConfigEntry, name: str) -> str:

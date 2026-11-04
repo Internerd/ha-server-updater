@@ -22,11 +22,22 @@ from .const import (
     CONTAINER_RESTART_TIMEOUT,
     NEEDRESTART_TIMEOUT,
     REBOOT_TIMEOUT,
+    SERVICE_RESTART_EXCLUDE_PATTERNS,
     SERVICE_RESTART_TIMEOUT,
     UPDATE_TIMEOUT,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+_SERVICE_RESTART_EXCLUDE_RE = re.compile("|".join(SERVICE_RESTART_EXCLUDE_PATTERNS))
+
+
+def split_restartable_services(services: list[str]) -> tuple[list[str], list[str]]:
+    """Split needrestart's services into (safe to restart, excluded)."""
+    safe = [s for s in services if not _SERVICE_RESTART_EXCLUDE_RE.fullmatch(s)]
+    excluded = [s for s in services if _SERVICE_RESTART_EXCLUDE_RE.fullmatch(s)]
+    return safe, excluded
 
 
 class ServerUpdaterError(Exception):
@@ -172,8 +183,21 @@ class UpdateCheckResult:
         )
 
     @property
+    def services_requiring_reboot(self) -> list[str]:
+        """Outdated services that are never restarted on their own (dbus, logind, ...).
+
+        Restarting them would end sessions or stop guests/containers, so
+        only a reboot of the server brings them up to date.
+        """
+        return split_restartable_services(self.services_to_restart or [])[1]
+
+    @property
     def any_reboot_required(self) -> bool:
-        return self.reboot_required or self.kernel_reboot_required
+        return (
+            self.reboot_required
+            or self.kernel_reboot_required
+            or bool(self.services_requiring_reboot)
+        )
 
 
 @dataclass

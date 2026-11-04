@@ -6,6 +6,27 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-04
+
+### Hinzugefügt
+
+- **Neustart für Dienste, die nur ein Server-Neustart aktualisiert**: Meldet
+  needrestart Dienste wie `dbus.service` oder `systemd-logind.service`, die
+  bewusst nicht einzeln neu gestartet werden, gilt der Server als
+  neustartbedürftig. `Neustart erforderlich` geht an (neues Attribut
+  `services_requiring_reboot`), und unter *Reparaturen* erscheint die
+  Meldung „Neustart erforderlich“, die den Server per Klick neu startet –
+  wie bei Kernel-Updates. Die Wartungsaktion mit `reboot: if_required`
+  berücksichtigt das ebenfalls.
+
+### Geändert
+
+- Sensor `Neu zu startende Dienste` und Button `Dienste neu starten`
+  erscheinen jetzt von selbst, sobald needrestart auf dem Server installiert
+  wird; bisher war dafür ein Neuladen der Integration nötig.
+- README: Hinweis, dass needrestart auf Debian und Proxmox VE erst
+  installiert werden muss (`apt install needrestart`).
+
 ## [0.7.2] - 2026-11-04
 
 ### Behoben
@@ -268,7 +289,8 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 - `button` zum Aktualisieren sowie Aktualisieren + Neustarten
 - HACS-Kompatibilität (`hacs.json`, versioniertes `manifest.json`)
 
-[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/Internerd/ha-server-updater/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Internerd/ha-server-updater/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/Internerd/ha-server-updater/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/Internerd/ha-server-updater/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Internerd/ha-server-updater/compare/v0.6.0...v0.7.0

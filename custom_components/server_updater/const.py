@@ -55,6 +55,7 @@ ATTR_RUNNING_KERNEL = "running_kernel"
 ATTR_NEWEST_KERNEL = "newest_kernel"
 ATTR_SERVICES = "services"
 ATTR_EXCLUDED_SERVICES = "excluded_services"
+ATTR_SERVICES_REQUIRING_REBOOT = "services_requiring_reboot"
 ATTR_GUESTS = "guests"
 ATTR_REBOOTING = "rebooting"
 

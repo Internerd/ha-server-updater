@@ -244,3 +244,45 @@ async def test_reboot_button_raises_on_failure(hass, servers) -> None:
         await hass.services.async_call(
             "button", "press", {"entity_id": "button.srv_reboot"}, blocking=True
         )
+
+
+async def test_services_only_a_reboot_updates_create_fixable_issue(
+    hass, hass_client, servers, freezer
+) -> None:
+    fake = FakeServer()
+    fake.needrestart = ["dbus.service", "systemd-logind.service", "cron.service"]
+    entry, _ = await setup_server(hass, servers, fake=fake)
+
+    # cron alone could be restarted without a reboot: no issue for it.
+    reboot_sensor = hass.states.get("binary_sensor.srv_reboot_required")
+    assert reboot_sensor.state == STATE_ON
+    assert reboot_sensor.attributes["services_requiring_reboot"] == [
+        "dbus.service",
+        "systemd-logind.service",
+    ]
+    issue = _issue(hass, entry)
+    assert issue is not None and issue.is_fixable
+    reason = issue.translation_placeholders["reason"]
+    assert "dbus.service" in reason and "cron.service" not in reason
+
+    assert await async_setup_component(hass, "repairs", {})
+    client = await hass_client()
+    resp = await client.post(
+        "/api/repairs/issues/fix", json={"handler": DOMAIN, "issue_id": issue.issue_id}
+    )
+    flow = await resp.json()
+    resp = await client.post(f"/api/repairs/issues/fix/{flow['flow_id']}", json={})
+    assert (await resp.json())["type"] == "create_entry"
+    assert fake.commands_matching(r"^reboot$")
+
+    await _advance(hass, freezer, 181)
+    assert hass.states.get("binary_sensor.srv_reboot_required").state == STATE_OFF
+    assert _issue(hass, entry) is None
+
+
+async def test_restartable_services_alone_need_no_reboot(hass, servers) -> None:
+    fake = FakeServer()
+    fake.needrestart = ["cron.service"]
+    entry, _ = await setup_server(hass, servers, fake=fake)
+    assert hass.states.get("binary_sensor.srv_reboot_required").state == STATE_OFF
+    assert _issue(hass, entry) is None

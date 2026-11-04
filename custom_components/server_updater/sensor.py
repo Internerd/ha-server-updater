@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ATTR_EXCLUDED_SERVICES, ATTR_SERVICES, DOMAIN
 from .coordinator import ServerUpdaterCoordinator, split_restartable_services
-from .entity import ServerUpdaterEntity
+from .entity import ServerUpdaterEntity, async_add_entities_when
 
 
 async def async_setup_entry(
@@ -20,11 +20,14 @@ async def async_setup_entry(
 ) -> None:
     """Set up sensors for a server."""
     coordinator: ServerUpdaterCoordinator = hass.data[DOMAIN][entry.entry_id]["apt"]
-    entities: list[SensorEntity] = [LastBootSensor(coordinator)]
-    # needrestart is optional; reload the integration after installing it.
-    if coordinator.data and coordinator.data.services_to_restart is not None:
-        entities.append(ServicesToRestartSensor(coordinator))
-    async_add_entities(entities)
+    async_add_entities([LastBootSensor(coordinator)])
+    # needrestart is optional; the sensor appears once it's installed.
+    async_add_entities_when(
+        coordinator,
+        lambda: bool(coordinator.data and coordinator.data.services_to_restart is not None),
+        lambda: [ServicesToRestartSensor(coordinator)],
+        async_add_entities,
+    )
 
 
 class LastBootSensor(ServerUpdaterEntity, SensorEntity):

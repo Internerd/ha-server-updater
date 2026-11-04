@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -36,7 +35,6 @@ from .const import (
     REBOOT_REFRESH_DELAY,
     REBOOT_RETRY_INTERVAL,
     REBOOT_WATCH_TIMEOUT,
-    SERVICE_RESTART_EXCLUDE_PATTERNS,
 )
 from .reporting import async_report
 from .ssh_client import (
@@ -45,19 +43,10 @@ from .ssh_client import (
     ServerHostKeyError,
     ServerUpdaterError,
     UpdateCheckResult,
+    split_restartable_services,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-_SERVICE_RESTART_EXCLUDE_RE = re.compile("|".join(SERVICE_RESTART_EXCLUDE_PATTERNS))
-
-
-def split_restartable_services(services: list[str]) -> tuple[list[str], list[str]]:
-    """Split needrestart's services into (safe to restart, excluded)."""
-    safe = [s for s in services if not _SERVICE_RESTART_EXCLUDE_RE.fullmatch(s)]
-    excluded = [s for s in services if _SERVICE_RESTART_EXCLUDE_RE.fullmatch(s)]
-    return safe, excluded
-
 
 class ServerUpdaterCoordinator(DataUpdateCoordinator[UpdateCheckResult]):
     """Coordinates polling a single server for update / reboot state."""
@@ -146,6 +135,11 @@ class ServerUpdaterCoordinator(DataUpdateCoordinator[UpdateCheckResult]):
             if len(packages) > MAX_REBOOT_PACKAGES_IN_ISSUE:
                 package_text += f" (+{len(packages) - MAX_REBOOT_PACKAGES_IN_ISSUE})"
             reasons.append(f"Pakete: {package_text}")
+        if services := result.services_requiring_reboot:
+            reasons.append(
+                "Dienste mit veralteten Bibliotheken, die nur ein Neustart "
+                f"aktualisiert: {', '.join(services)}"
+            )
 
         self.reboot_issue_placeholders = {
             "name": self.entry.title,

@@ -17,6 +17,7 @@ from .docker_coordinator import ContainerCoordinator
 from .entity import (
     ContainerEntity,
     ServerUpdaterEntity,
+    async_add_entities_when,
     async_track_container_entities,
     container_device_id,
 )
@@ -39,10 +40,14 @@ async def async_setup_entry(
         RescanContainersButton(entry, docker_coordinator),
         PruneImagesButton(entry, docker_coordinator),
     ]
-    # needrestart is optional; without it there is nothing to restart.
-    if coordinator.data and coordinator.data.services_to_restart is not None:
-        entities.append(RestartServicesButton(coordinator))
     async_add_entities(entities)
+    # needrestart is optional; the button appears once it's installed.
+    async_add_entities_when(
+        coordinator,
+        lambda: bool(coordinator.data and coordinator.data.services_to_restart is not None),
+        lambda: [RestartServicesButton(coordinator)],
+        async_add_entities,
+    )
 
     # Unlike update entities, restart buttons exist for every tracked
     # container, including ones whose image can't be checked for updates.

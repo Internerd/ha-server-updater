@@ -16,6 +16,7 @@ from .const import (
     ATTR_REBOOT_PACKAGES,
     ATTR_REBOOTING,
     ATTR_RUNNING_KERNEL,
+    ATTR_SERVICES_REQUIRING_REBOOT,
     DOMAIN,
     MAX_PACKAGE_ATTRIBUTE,
 )
@@ -44,8 +45,9 @@ async def async_setup_entry(
 class RebootRequiredBinarySensor(ServerUpdaterEntity, BinarySensorEntity):
     """Indicates whether the server needs a reboot.
 
-    On when /var/run/reboot-required exists or a newer kernel is installed
-    than the one running (Proxmox VE doesn't flag kernel updates otherwise).
+    On when /var/run/reboot-required exists, a newer kernel is installed
+    than the one running (Proxmox VE doesn't flag kernel updates otherwise),
+    or needrestart lists services that only a reboot updates (dbus, ...).
     """
 
     _attr_translation_key = "reboot_required"
@@ -70,6 +72,7 @@ class RebootRequiredBinarySensor(ServerUpdaterEntity, BinarySensorEntity):
             ATTR_REBOOT_PACKAGES: data.reboot_required_packages[:MAX_PACKAGE_ATTRIBUTE],
             ATTR_RUNNING_KERNEL: data.running_kernel,
             ATTR_NEWEST_KERNEL: data.newest_kernel,
+            ATTR_SERVICES_REQUIRING_REBOOT: data.services_requiring_reboot,
         }
 
 

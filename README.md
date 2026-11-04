@@ -167,18 +167,32 @@ Ereignis wird trotzdem gefeuert.
 
 Nach Bibliotheks-Updates (z. B. OpenSSL, libc) laufen Dienste oft noch mit
 der alten Version im Speicher. Ein kompletter Neustart des Servers ist dafür
-nicht nötig; es reicht, die betroffenen Dienste neu zu starten. Ist auf dem
-Server [`needrestart`](https://github.com/liske/needrestart) installiert
-(`apt install needrestart`, danach die Integration neu laden), ermittelt die
-Integration bei jeder Abfrage per `needrestart -b` die betroffenen Dienste
-und bietet dafür Sensor und Button an.
+nicht nötig; es reicht, die betroffenen Dienste neu zu starten. Dafür muss auf
+dem Server [`needrestart`](https://github.com/liske/needrestart) installiert
+sein. **Ubuntu bringt es standardmäßig mit, Debian und Proxmox VE nicht:**
+
+```bash
+apt install needrestart
+```
+
+Die Integration ermittelt dann bei jeder Abfrage per `needrestart -b` die
+betroffenen Dienste. Sensor `Neu zu startende Dienste` und Button `Dienste
+neu starten` erscheinen bei der nächsten Abfrage nach der Installation von
+selbst (kein Neuladen nötig).
 
 Der Button startet die Dienste per `systemctl restart` neu, **außer** solche,
 deren Neustart Sitzungen beendet oder Gäste/Container betrifft: `dbus`,
 `systemd-*`, `user@*`, `getty@*`, Display-Manager, `docker`/`containerd`
 (würde alle Container stoppen), `pve-guests`, `lxc*`, `qemu-server`,
-`pve-ha-*`. Diese stehen im Attribut `excluded_services` und erledigen sich
-mit dem nächsten Neustart des Servers.
+`pve-ha-*`. Diese stehen im Attribut `excluded_services`. Der Button ist nur
+verfügbar, wenn es mindestens einen Dienst gibt, den er neu starten darf.
+
+Stehen solche nur per Neustart aktualisierbaren Dienste aus, gilt der Server
+als **neustartbedürftig**: `Neustart erforderlich` geht an (Attribut
+`services_requiring_reboot`), und unter *Einstellungen → Reparaturen*
+erscheint – wie bei Kernel-Updates – die Meldung „Neustart erforderlich“, die
+den Server mit einem Klick auf *Absenden* neu startet. Auch die
+Wartungsaktion mit `reboot: if_required` startet den Server dann neu.
 
 ## Proxmox VE: Gäste mit Autostart
 
